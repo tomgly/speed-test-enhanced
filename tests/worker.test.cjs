@@ -25,9 +25,13 @@ async function harness() {
   const messages = [], requests = [];
   const session = await (await fetch(`${base}/api/sessions`, { method: 'POST' })).json();
   const spec = await (await fetch(`${base}/api/spec`)).json();
-  const state = { badAck: false, earlyEnd: false, compressed: false };
+  const state = { badAck: false, earlyEnd: false, compressed: false, partialEarly: false };
   const network = async (url, options = {}) => {
     requests.push({ url, method: options.method || 'GET', body: options.body });
+    if (state.partialEarly && url.includes('/api/download')) {
+      state.partialEarly = false;
+      return new Response(new Uint8Array(7));
+    }
     if (state.earlyEnd && url.includes('/api/download')) return new Response(new Uint8Array(7));
     if (state.compressed && url.includes('/api/download')) return new Response(new Uint8Array(7), {headers:{'Content-Encoding':'gzip'}});
     const response = await fetch(new URL(url, base), options);
@@ -74,7 +78,7 @@ test('Worker confirms real HTTP bytes in both directions, with fixed parallelism
   } finally { await h.stop(); }
 });
 test('Worker rejects bad receipts, compressed/early responses and cancellation without a result', async () => {
-  for (const failure of ['badAck', 'earlyEnd', 'compressed', 'cancel']) {
+  for (const failure of ['badAck', 'earlyEnd', 'partialEarly', 'compressed', 'cancel']) {
     const h = await harness();
     try {
       h.state[failure] = true;
@@ -85,6 +89,46 @@ test('Worker rejects bad receipts, compressed/early responses and cancellation w
       assert.ok(!h.messages.some(m => m.type === 'complete' || m.type === 'result'));
     } finally { await h.stop(); }
   }
+});
+test('Auto ignores isolated spikes and dips and considers intermediate parallelism', async () => {
+  const h = await harness();
+  try {
+    vm.runInContext(`
+      globalThis.counts = [];
+      const rates = [1000,10,10,20,1,20,21,21,1000];
+      windowTransfer = async (direction, count, seconds, body, live) => {
+        if (!live && seconds === spec.probeSeconds) {
+          counts.push(count);
+          return {bytes: 1, seconds, bps: rates.shift(), connections: count};
+        }
+        return {bytes: 123, seconds, bps: 1, connections: count};
+      };`, h.context);
+    const r = await vm.runInContext(`measure('download',{mode:'auto',connections:16,duration:5},payload())`, h.context);
+    assert.equal(r.connections, 2);
+    assert.deepEqual(Array.from(h.context.counts), [1,1,1,2,2,2,4,4,4]);
+    assert.equal(r.bytes, 123);
+  } finally { await h.stop(); }
+});
+test('Upload API selection compares repeated probes and preserves Manual parallelism', async () => {
+  const h = await harness();
+  try {
+    vm.runInContext(`
+      globalThis.apis = [];
+      const rates = {fetch:[1000,10,10],xhr:[20,1,20]};
+      windowTransfer = async (direction, count, seconds, body, live) => {
+        if (seconds === .3) {
+          apis.push(transport);
+          return {bps:rates[transport].shift()};
+        }
+        return {bytes:123,seconds,bps:1,connections:count};
+      };`, h.context);
+    const r = await vm.runInContext(`measure('upload',{mode:'manual',connections:7,duration:5},payload())`, h.context);
+    assert.equal(r.connections, 7);
+    assert.deepEqual(Array.from(h.context.apis), ['fetch','xhr','xhr','fetch','fetch','xhr']);
+    const selected = h.messages.find(m => m.type === 'transport');
+    assert.equal(selected.transport, 'xhr');
+    assert.equal(selected.fetchBps, 10); assert.equal(selected.xhrBps, 20);
+  } finally { await h.stop(); }
 });
 test('Auto selects each direction independently; warm-up and API probes stay out of final bytes', async () => {
   const h = await harness();
@@ -111,19 +155,20 @@ test('Auto selects each direction independently; warm-up and API probes stay out
     }
   } finally { await h.stop(); }
 });
-test('production start completes, validates with Go, and preserves UI message and settings contracts', { timeout: 40000 }, async () => {
+for (const mode of ['manual', 'auto']) test(`production ${mode} start completes, validates with Go, and preserves UI message and settings contracts`, { timeout: 40000 }, async () => {
   const h = await harness();
   try {
     // The production settings path retains the minimum supported five seconds.
-    await h.context.onmessage({ data: { type: 'start', settings: { mode: 'manual', connections: 2, duration: 5 } } });
+    await h.context.onmessage({ data: { type: 'start', settings: { mode, connections: 2, duration: 5 } } });
     const complete = h.messages.find(m => m.type === 'complete');
     assert.ok(complete, JSON.stringify(h.messages.at(-1)));
     assert.equal(complete.result.config.duration, 5);
     for (const direction of ['download', 'upload']) {
       const r = complete.result[direction];
-      assert.equal(r.connections, 2); assert.ok(r.bytes > 0); assert.ok(r.seconds >= 5);
+      assert.ok(r.connections >= 1 && r.connections <= 2); assert.ok(r.bytes > 0); assert.ok(r.seconds >= 5);
+      if (mode === 'manual') assert.equal(r.connections, 2);
       const samples = h.messages.filter(m => m.type === 'sample' && m.phase === direction);
-      assert.ok(samples.length > 0); assert.ok(samples.every(m => m.connections === 2));
+      assert.ok(samples.length > 0); assert.ok(samples.every(m => m.connections === r.connections));
       assert.ok(complete.usage[direction].bytes > r.bytes);
       assert.ok(complete.usage[direction].duration > r.seconds);
     }

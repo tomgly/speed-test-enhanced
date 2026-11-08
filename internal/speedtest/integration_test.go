@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -201,29 +203,122 @@ func TestEarlyEOFRejected(t *testing.T) {
 	}
 }
 
+func TestOneEarlyDownloadStreamRejected(t *testing.T) {
+	var requests atomic.Int32
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) > 1 {
+			time.Sleep(150 * time.Millisecond)
+		}
+		w.Write([]byte("payload"))
+	}))
+	defer s.Close()
+	c := NewClient(s.URL)
+	defer c.Close()
+	cfg := DefaultConfig()
+	cfg.Protocol = "http"
+	if _, err := c.Window(context.Background(), cfg, "download", 2, 100*time.Millisecond, nil); err == nil {
+		t.Fatal("partial early EOF accepted")
+	}
+}
+
+func TestProgressDelayExcludedFromMeasurement(t *testing.T) {
+	callback := make(chan struct{})
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-callback
+		time.Sleep(100 * time.Millisecond)
+		w.Write([]byte("payload"))
+	}))
+	defer s.Close()
+	c := NewClient(s.URL)
+	defer c.Close()
+	cfg := DefaultConfig()
+	cfg.Protocol = "http"
+	start := time.Now()
+	called := false
+	r, err := c.Window(context.Background(), cfg, "download", 1, 250*time.Millisecond, func(Transfer) {
+		if !called {
+			called = true
+			close(callback)
+			time.Sleep(600 * time.Millisecond)
+		}
+	})
+	if err != nil || !called || time.Since(start).Seconds()-r.Seconds < .25 {
+		t.Fatal(r, err, time.Since(start))
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(b []byte) (int, error) { return f(b) }
+
+func TestUploadBodyWritesBoundedChunks(t *testing.T) {
+	payload := bytes.Repeat([]byte("payload"), BufferSize)
+	var received bytes.Buffer
+	body := uploadBody{bytes.NewReader(payload)}
+	n, err := body.WriteTo(writerFunc(func(b []byte) (int, error) {
+		if len(b) > BufferSize {
+			t.Fatal("unbounded socket write", len(b))
+		}
+		return received.Write(b)
+	}))
+	if err != nil || n != int64(len(payload)) || !bytes.Equal(received.Bytes(), payload) || body.Len() != 0 {
+		t.Fatal(n, err, body.Len())
+	}
+	for _, failure := range []error{nil, io.ErrClosedPipe} {
+		body := uploadBody{bytes.NewReader(payload)}
+		n, err := body.WriteTo(writerFunc(func(b []byte) (int, error) { return 7, failure }))
+		if n != 7 || err == nil || (failure != nil && err != failure) {
+			t.Fatal(n, err)
+		}
+	}
+}
+
+func TestUploadRejectsTruncatedAcknowledgment(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n, _ := io.Copy(io.Discard, r.Body)
+		w.Header().Set("X-Received-Bytes", fmt.Sprint(n))
+		w.Header().Set("Content-Length", "100")
+		w.Write([]byte("short"))
+	}))
+	defer s.Close()
+	c := NewClient(s.URL)
+	defer c.Close()
+	cfg := DefaultConfig()
+	cfg.Protocol = "http"
+	if _, err := c.Window(context.Background(), cfg, "upload", 1, 100*time.Millisecond, nil); err == nil {
+		t.Fatal("truncated receipt accepted")
+	}
+}
+
 func TestAutomaticTransferFixesSelectedCount(t *testing.T) {
 	s := localServer(t)
-	cfg := DefaultConfig()
-	cfg.Connections = 4
-	cfg.Duration = .25
-	cfg.Warmup = .05
-	observed := map[string][]int{}
-	result, err := NewClient(s.Address()).Run(context.Background(), cfg, func(p Progress) { observed[p.Phase] = append(observed[p.Phase], p.Connections) })
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, v := range []struct {
-		direction string
-		r         Transfer
-	}{{"download", result.Download}, {"upload", result.Upload}} {
-		if v.r.Connections < 1 || v.r.Connections > 4 || len(observed[v.direction]) == 0 {
-			t.Fatal(v)
-		}
-		for _, n := range observed[v.direction] {
-			if n != v.r.Connections {
-				t.Fatal("changed count", n, v.r.Connections)
+	for _, protocol := range []string{"tcp", "udp", "http"} {
+		t.Run(protocol, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Protocol = protocol
+			cfg.Rate = 20_000_000
+			cfg.Connections = 4
+			cfg.Duration = .25
+			cfg.Warmup = .05
+			observed := map[string][]int{}
+			result, err := NewClient(s.Address()).Run(context.Background(), cfg, func(p Progress) { observed[p.Phase] = append(observed[p.Phase], p.Connections) })
+			if err != nil {
+				t.Fatal(err)
 			}
-		}
+			for _, v := range []struct {
+				direction string
+				r         Transfer
+			}{{"download", result.Download}, {"upload", result.Upload}} {
+				if v.r.Connections < 1 || v.r.Connections > 4 || len(observed[v.direction]) == 0 {
+					t.Fatal(v)
+				}
+				for _, n := range observed[v.direction] {
+					if n != v.r.Connections {
+						t.Fatal("changed count", n, v.r.Connections)
+					}
+				}
+			}
+		})
 	}
 }
 func TestIPv6Native(t *testing.T) {

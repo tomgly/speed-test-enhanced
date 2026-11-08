@@ -78,6 +78,7 @@ async function windowTransfer(direction, count, seconds, body, live = false) {
   }, 200) : null;
   async function stream() {
     if (direction === 'download') {
+      const streamStart = now();
       const r = await request(`${path}&seconds=${seconds}`, { timeout: seconds * 1000 + 5000 });
       try {
         if (r.response.headers.get('Content-Encoding')) throw new Error('Compressed measurement response');
@@ -87,6 +88,7 @@ async function windowTransfer(direction, count, seconds, body, live = false) {
           const { done, value } = await reader.read(); if (done) break;
           check(); bytes += value.byteLength; usage.download.bytes += value.byteLength;
         } } finally { reader.releaseLock(); }
+        if (now() - streamStart < seconds * 1000) throw new Error('Download stream ended before the measurement deadline');
       } finally { r.release(); }
     } else while (now() < end) {
       check();
@@ -116,18 +118,31 @@ async function measure(direction, config, body) {
   try {
     // Compare browser upload APIs on this path, outside the measured result.
     if (direction === 'upload') {
-      transport = 'fetch'; const fetchProbe = await windowTransfer(direction, 1, .3, body);
-      transport = 'xhr'; const xhrProbe = await windowTransfer(direction, 1, .3, body);
-      transport = xhrProbe.bps > fetchProbe.bps * spec.gain ? 'xhr' : 'fetch';
-      postMessage({ type: 'transport', transport, fetchBps: fetchProbe.bps, xhrBps: xhrProbe.bps });
+      const rates = { fetch: [], xhr: [] };
+      for (let i = 0; i < spec.probeSamples; i++) {
+        for (const api of i % 2 ? ['xhr', 'fetch'] : ['fetch', 'xhr']) {
+          transport = api;
+          rates[api].push((await windowTransfer(direction, 1, .3, body)).bps);
+        }
+      }
+      const fetchBps = rates.fetch.sort((a, b) => a - b)[1];
+      const xhrBps = rates.xhr.sort((a, b) => a - b)[1];
+      transport = xhrBps > fetchBps * spec.gain ? 'xhr' : 'fetch';
+      postMessage({ type: 'transport', transport, fetchBps, xhrBps });
     }
     let count = config.connections;
     if (config.mode === 'auto' && count > 1) {
       let best = 1, bestRate = 0;
       for (let n = 1; ; n = Math.min(config.connections, n * spec.factor)) {
-        const probe = await windowTransfer(direction, n, spec.probeSeconds, body);
-        postMessage({ type: 'calibration', phase: direction, ...probe });
-        if (probe.bps > bestRate * spec.gain) { best = n; bestRate = probe.bps; } else if (n > 1) break;
+        const samples = [];
+        for (let i = 0; i < spec.probeSamples; i++) {
+          const probe = await windowTransfer(direction, n, spec.probeSeconds, body);
+          if (!Number.isFinite(probe.bps) || probe.bps < 0) throw new Error('Invalid calibration result');
+          samples.push(probe.bps);
+          postMessage({ type: 'calibration', phase: direction, ...probe });
+        }
+        const bps = samples.sort((a, b) => a - b)[Math.floor(samples.length / 2)];
+        if (bps > bestRate * spec.gain) { best = n; bestRate = bps; } else if (n > 1) break;
         if (n === config.connections) break;
       }
       count = best;
@@ -154,7 +169,7 @@ onmessage = async ({ data }) => {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         session = await json('/api/sessions', { method: 'POST' }); spec = await json('/api/spec');
-        if (!(spec.probeSeconds > 0 && spec.probeSeconds <= 1 && spec.factor > 1 && spec.factor <= 4 && spec.gain >= 1 && spec.warmup >= 0 && spec.warmup <= 5 && spec.pingSamples === 10)) throw new Error('Unsupported measurement specification');
+        if (!(spec.probeSeconds > 0 && spec.probeSeconds <= 1 && spec.probeSamples === 3 && spec.factor > 1 && spec.factor <= 4 && spec.gain >= 1 && spec.warmup >= 0 && spec.warmup <= 5 && spec.pingSamples === 10)) throw new Error('Unsupported measurement specification');
         const latency = await ping();
         const download = await measure('download', config, body);
         postMessage({ type: 'result', phase: 'download', ...download });

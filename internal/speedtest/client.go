@@ -188,8 +188,12 @@ func (c *Client) Window(ctx context.Context, config Config, direction string, n 
 		}
 	}
 	var confirmed atomic.Uint64
-	start := time.Now()
+	var start time.Time
+	ready := sync.WaitGroup{}
+	ready.Add(n)
+	begin := make(chan struct{})
 	done := make(chan struct{})
+	finished := make(chan time.Time, n)
 	stats := make(chan packetStats, n)
 	errs := make(chan error, n)
 	var wg sync.WaitGroup
@@ -197,6 +201,8 @@ func (c *Client) Window(ctx context.Context, config Config, direction string, n 
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
+			ready.Done()
+			<-begin
 			var st packetStats
 			var err error
 			if config.Protocol == "http" {
@@ -204,6 +210,7 @@ func (c *Client) Window(ctx context.Context, config Config, direction string, n 
 			} else {
 				st, err = streams[i].run(ctx, h, &confirmed)
 			}
+			finished <- time.Now()
 			if err != nil {
 				errs <- err
 				cancel()
@@ -211,6 +218,9 @@ func (c *Client) Window(ctx context.Context, config Config, direction string, n 
 			stats <- st
 		}(i)
 	}
+	ready.Wait()
+	start = time.Now()
+	close(begin)
 	go func() { wg.Wait(); close(done) }()
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
@@ -230,7 +240,15 @@ func (c *Client) Window(ctx context.Context, config Config, direction string, n 
 				last = now
 			}
 		case <-done:
-			elapsed := time.Since(start)
+			// Progress callbacks may block; only transfer completion belongs in
+			// the denominator, including the final receipt and drain.
+			end := start
+			for i := 0; i < n; i++ {
+				if t := <-finished; t.After(end) {
+					end = t
+				}
+			}
+			elapsed := end.Sub(start)
 			close(errs)
 			for err := range errs {
 				if err != nil {
@@ -265,9 +283,38 @@ func (c *Client) Window(ctx context.Context, config Config, direction string, n 
 		}
 	}
 }
+
+// Preserve WriterTo with chunked framing: a known length makes net/http wrap
+// the body in a LimitedReader and copy through a 32 KiB buffer.
+type uploadBody struct{ *bytes.Reader }
+
+func (b uploadBody) WriteTo(w io.Writer) (int64, error) {
+	return b.Reader.WriteTo(uploadWriter{w})
+}
+
+type uploadWriter struct{ io.Writer }
+
+func (w uploadWriter) Write(b []byte) (int, error) {
+	total := 0
+	for len(b) > 0 {
+		chunk := b[:min(len(b), BufferSize)]
+		n, err := w.Writer.Write(chunk)
+		total += n
+		if err != nil {
+			return total, err
+		}
+		if n != len(chunk) {
+			return total, io.ErrShortWrite
+		}
+		b = b[n:]
+	}
+	return total, nil
+}
+
 func (c *Client) httpStream(ctx context.Context, h handshake, confirmed *atomic.Uint64, start time.Time) error {
 	base := "?id=" + url.QueryEscape(h.ID)
 	if h.Direction == "download" {
+		streamStart := time.Now()
 		r, err := c.request(ctx, "GET", "/api/download"+base+"&seconds="+strconv.FormatFloat(h.Seconds, 'f', 6, 64), nil)
 		if err != nil {
 			return err
@@ -281,6 +328,9 @@ func (c *Client) httpStream(ctx context.Context, h handshake, confirmed *atomic.
 			n, err := r.Body.Read(b)
 			confirmed.Add(uint64(n))
 			if err == io.EOF {
+				if time.Since(streamStart) < seconds(h.Seconds) {
+					return errors.New("download stream ended before the measurement deadline")
+				}
 				return nil
 			}
 			if err != nil {
@@ -290,13 +340,16 @@ func (c *Client) httpStream(ctx context.Context, h handshake, confirmed *atomic.
 	}
 	end := start.Add(seconds(h.Seconds))
 	for time.Now().Before(end) {
-		r, err := c.request(ctx, "POST", "/api/upload"+base, bytes.NewReader(c.payload))
+		r, err := c.request(ctx, "POST", "/api/upload"+base, uploadBody{bytes.NewReader(c.payload)})
 		if err != nil {
 			return err
 		}
 		acknowledged, err := strconv.ParseUint(r.Header.Get("X-Received-Bytes"), 10, 64)
-		io.Copy(io.Discard, r.Body)
+		_, drainErr := io.Copy(io.Discard, r.Body)
 		r.Body.Close()
+		if drainErr != nil {
+			return drainErr
+		}
 		if err != nil || acknowledged != uint64(len(c.payload)) {
 			return errors.New("upload acknowledgment mismatch")
 		}

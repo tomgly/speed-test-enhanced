@@ -12,6 +12,10 @@ Speed Test Enhanced is a self-hosted speed test designed and optimized for netwo
 
 Speeds are calculated from receiver-confirmed payload and actual elapsed time, excluding warm-up and calibration.
 
+Auto calibrates each direction separately, doubling parallelism up to the configured limit. It compares the median of three independent 0.4-second probes at each count and keeps the smaller count unless throughput improves by more than 8%. Calibration takes up to 9.6 seconds per direction at a limit of 128, plus connection setup and acknowledged drain time. The selected count stays fixed during warm-up and measurement; Manual skips calibration.
+
+Browser uploads compare fetch and XHR using three alternating pairs of 0.3-second probes and their median rates before selecting a transport. These probes are excluded from the measured result.
+
 ## Installation
 
 Requires Go 1.24 or newer. Supports Windows, Linux, and macOS.

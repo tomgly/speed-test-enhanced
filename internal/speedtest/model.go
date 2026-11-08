@@ -10,9 +10,10 @@ import (
 
 const BufferSize = 256 * 1024
 
-const ProbeDuration = 600 * time.Millisecond
+const ProbeDuration = 400 * time.Millisecond
 const GainThreshold = 1.08
-const ProbeFactor = 4
+const ProbeFactor = 2
+const ProbeSamples = 3
 
 type Config struct {
 	Protocol    string  `json:"protocol"`
@@ -113,21 +114,31 @@ type Progress struct {
 }
 type WindowFunc func(context.Context, string, int, time.Duration, func(Transfer)) (Transfer, error)
 
-// SelectConnections bounds calibration to five windows and requires an 8% gain.
-// A plateau or regression retains the smaller count, separately per direction.
+// Compare medians of independent windows so a single transient spike or dip
+// cannot stop calibration or select excessive parallelism. Keep the smaller
+// count unless doubling provides an 8% gain (at most 24 probe windows).
 func SelectConnections(ctx context.Context, limit int, probe func(context.Context, int) (float64, error)) (int, error) {
 	if limit == 1 {
 		return 1, nil
 	}
 	best, bestRate := 1, 0.0
 	for n := 1; ; n = min(limit, n*ProbeFactor) {
-		bps, err := probe(ctx, n)
-		if err != nil {
-			return 0, err
+		var samples [ProbeSamples]float64
+		for i := range samples {
+			if err := ctx.Err(); err != nil {
+				return 0, err
+			}
+			bps, err := probe(ctx, n)
+			if err != nil {
+				return 0, err
+			}
+			if math.IsNaN(bps) || math.IsInf(bps, 0) || bps < 0 {
+				return 0, errors.New("invalid calibration result")
+			}
+			samples[i] = bps
 		}
-		if math.IsNaN(bps) || math.IsInf(bps, 0) || bps < 0 {
-			return 0, errors.New("invalid calibration result")
-		}
+		sort.Float64s(samples[:])
+		bps := samples[ProbeSamples/2]
 		if bps > bestRate*GainThreshold {
 			best, bestRate = n, bps
 		} else if n > 1 {

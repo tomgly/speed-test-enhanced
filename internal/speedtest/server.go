@@ -207,7 +207,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(405)
 			return
 		}
-		writeJSON(w, map[string]any{"probeSeconds": ProbeDuration.Seconds(), "gain": GainThreshold, "factor": ProbeFactor, "warmup": 1, "pingSamples": 10, "maxConnections": 128})
+		writeJSON(w, map[string]any{"probeSeconds": ProbeDuration.Seconds(), "probeSamples": ProbeSamples, "gain": GainThreshold, "factor": ProbeFactor, "warmup": 1, "pingSamples": 10, "maxConnections": 128})
 		return
 	case "/healthz":
 		if r.Method != "GET" {

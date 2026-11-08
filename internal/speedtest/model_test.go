@@ -42,17 +42,22 @@ func TestSelectConnections(t *testing.T) {
 		want   int
 		counts []int
 	}{
-		{"growth", 128, []float64{1, 4, 16, 64, 128}, 128, []int{1, 4, 16, 64, 128}},
-		{"plateau", 128, []float64{10, 10.5}, 1, []int{1, 4}},
-		{"regression", 128, []float64{10, 5}, 1, []int{1, 4}},
-		{"bounded", 17, []float64{1, 4, 16, 17}, 16, []int{1, 4, 16, 17}},
+		{"growth", 128, []float64{1, 2, 4, 8, 16, 32, 64, 128}, 128, []int{1, 2, 4, 8, 16, 32, 64, 128}},
+		{"plateau", 128, []float64{10, 10.5}, 1, []int{1, 2}},
+		{"regression", 128, []float64{10, 5}, 1, []int{1, 2}},
+		{"bounded", 17, []float64{1, 2, 4, 8, 16, 17}, 16, []int{1, 2, 4, 8, 16, 17}},
+		{"intermediate plateau", 16, []float64{1, 2, 2.05}, 2, []int{1, 2, 4}},
 		{"one", 1, nil, 1, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var counts []int
+			calls := 0
 			got, err := SelectConnections(context.Background(), tc.limit, func(_ context.Context, n int) (float64, error) {
-				counts = append(counts, n)
-				return tc.rates[len(counts)-1], nil
+				if calls%ProbeSamples == 0 {
+					counts = append(counts, n)
+				}
+				calls++
+				return tc.rates[(calls-1)/ProbeSamples], nil
 			})
 			if err != nil || got != tc.want || !reflect.DeepEqual(counts, tc.counts) {
 				t.Fatalf("%d %v %v", got, counts, err)
@@ -62,6 +67,28 @@ func TestSelectConnections(t *testing.T) {
 	sentinel := errors.New("probe failed")
 	if _, err := SelectConnections(context.Background(), 4, func(context.Context, int) (float64, error) { return 0, sentinel }); !errors.Is(err, sentinel) {
 		t.Fatal(err)
+	}
+}
+
+func TestCalibrationRejectsTransientOutliers(t *testing.T) {
+	for _, rates := range [][]float64{
+		{1000, 10, 10, 20, 1, 20, 21, 21, 1000},
+		{1, 10, 10, 20, 1000, 20, 21, 21, 1},
+	} {
+		calls := 0
+		got, err := SelectConnections(context.Background(), 16, func(_ context.Context, n int) (float64, error) {
+			v := rates[calls]
+			calls++
+			return v, nil
+		})
+		if err != nil || got != 2 || calls != 9 {
+			t.Fatal(got, calls, err)
+		}
+	}
+	for _, bad := range []float64{math.NaN(), math.Inf(1), -1} {
+		if _, err := SelectConnections(context.Background(), 4, func(context.Context, int) (float64, error) { return bad, nil }); err == nil {
+			t.Fatal("invalid calibration accepted", bad)
+		}
 	}
 }
 func TestRunDirectionSeparatesWindowsAndFixesConcurrency(t *testing.T) {
