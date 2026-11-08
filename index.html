@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Speed Test Enhanced</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/css/speedtest.css">
+  <script src="assets/js/measurement-core.js" defer></script>
+  <script src="assets/js/results.js" defer></script>
+  <script src="assets/js/ui.js" defer></script>
+</head>
+<body data-state="idle">
+  <header>
+    <a class="wordmark" href="./" aria-label="Speed Test Enhanced home">Speed Test <span>Enhanced</span></a>
+    <nav aria-label="Main navigation"><a class="github-link" href="https://github.com/tomgly/100G-SpeedTest" target="_blank" rel="noopener noreferrer" aria-label="GitHub repository"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .8a11.2 11.2 0 0 0-3.54 21.83c.56.1.77-.24.77-.54v-2.12c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.69.08-.69 1.13.08 1.73 1.16 1.73 1.16 1 1.72 2.63 1.22 3.27.93.1-.73.39-1.22.71-1.5-2.5-.28-5.13-1.25-5.13-5.54 0-1.22.44-2.22 1.16-3-.12-.29-.5-1.43.11-2.97 0 0 .94-.3 3.08 1.15a10.7 10.7 0 0 1 5.6 0c2.14-1.45 3.08-1.15 3.08-1.15.61 1.54.23 2.68.11 2.97.72.78 1.15 1.78 1.15 3 0 4.3-2.63 5.25-5.14 5.53.4.35.76 1.03.76 2.08v3.23c0 .3.2.65.78.54A11.2 11.2 0 0 0 12 .8Z"/></svg><span>GitHub</span></a><button id="settings-open" class="quiet">Settings</button></nav>
+  </header>
+  <main>
+    <section id="results" class="results" aria-label="Measurement results" hidden>
+      <div id="throughput" class="throughput" hidden>
+        <div id="download-result" class="download" hidden>
+          <h2>Download</h2>
+          <p><strong id="download-value">&mdash;</strong><span id="download-unit">Mbps</span></p>
+          <div id="download-timing" class="transfer-summary" hidden><span class="duration" aria-label="Download Duration"><span class="icon icon-clock-down" aria-hidden="true"></span><span id="download-duration"></span></span><span class="payload"><span class="icon icon-download" aria-hidden="true"></span><span id="download-data" aria-label="Download Data"></span></span></div>
+        </div>
+        <div id="upload-result" class="upload" hidden>
+          <h2>Upload</h2>
+          <p><strong id="upload-value">&mdash;</strong><span id="upload-unit">Mbps</span></p>
+          <div id="upload-timing" class="transfer-summary" hidden><span class="duration" aria-label="Upload Duration"><span class="icon icon-clock-up" aria-hidden="true"></span><span id="upload-duration"></span></span><span class="payload"><span class="icon icon-upload" aria-hidden="true"></span><span id="upload-data" aria-label="Upload Data"></span></span></div>
+        </div>
+      </div>
+      <div id="latency" class="latency" hidden>
+        <div><h2><span class="icon icon-activity" aria-hidden="true"></span>Ping</h2><p><strong id="ping-value">—</strong><span>ms</span></p></div>
+        <div><h2><span class="icon icon-chart" aria-hidden="true"></span>Jitter</h2><p><strong id="jitter-value">—</strong><span>ms</span></p></div>
+      </div>
+      <div id="result-details" hidden>
+        <dl class="endpoints"><dt class="client-label">Client</dt><dd id="client-ip"></dd><dt class="server-label">Server</dt><dd id="server-ip"></dd></dl>
+      </div>
+    </section>
+    <section id="instrument" class="instrument" aria-label="Speed measurement" tabindex="-1">
+      <div class="dial">
+      <svg class="gauge" viewBox="0 0 420 360" aria-hidden="true">
+        <path class="track" d="M 62.776 295 A 170 170 0 1 1 357.224 295" pathLength="100"/>
+        <path id="gauge-fill" d="M 62.776 295 A 170 170 0 1 1 357.224 295" pathLength="100"/>
+        <g class="gauge-labels" text-anchor="middle" dominant-baseline="middle">
+          <text x="93" y="278">0</text><text id="scale-1" x="93" y="142">0.25</text>
+          <text id="scale-2" x="210" y="74">0.5</text><text id="scale-3" x="327" y="142">0.75</text>
+          <text id="scale-label" x="327" y="278">1</text>
+        </g>
+        <g id="gauge-needle"><path d="M 210 210 L 210 110"/><circle cx="210" cy="210" r="4"/></g>
+      </svg>
+      <button id="go" aria-label="Start speed test">GO</button>
+      </div>
+      <div id="live" hidden><span id="phase-label">Connecting</span><p><strong id="live-value">0</strong><span id="live-unit">bps</span></p></div>
+      <progress id="progress" max="1" value="0" aria-label="Measurement progress" hidden></progress>
+    </section>
+    <div class="run-state"><p id="status" role="status" aria-live="polite"></p><div id="result-actions" hidden><button id="retry" hidden>Test Again</button><button id="copy" hidden>Copy Results</button></div></div>
+  </main>
+  <footer><a href="./">Speed Test Enhanced</a><a href="LICENSE">MIT License</a></footer>
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <form id="settings-form"><div class="dialog-header"><h2 id="settings-title">Test settings</h2><button type="button" id="settings-close" class="quiet" aria-label="Close settings">Close</button></div>
+      <label>Measurement mode<select name="mode"><option value="auto">Auto</option><option value="manual">Manual</option></select></label>
+      <label><span id="connections-label">Maximum parallel requests</span><input name="connections" type="number" min="1" max="128" step="1" required></label>
+      <label>Test duration<select name="duration"><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="20">20 seconds</option><option value="30">30 seconds</option></select></label>
+      <label>Theme<select name="theme"><option value="auto">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+      <button type="submit" class="save">Save settings</button>
+    </form>
+  </dialog>
+</body>
+</html>

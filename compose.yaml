@@ -1,0 +1,23 @@
+services:
+  speedtest:
+    build: .
+    ports:
+      - "3000:3000/tcp"
+      - "3001:3001/tcp"
+      - "3002:3002/udp"
+    environment:
+      HTTP_ADDR: ":3000"
+      TCP_ADDR: ":3001"
+      UDP_ADDR: ":3002"
+      IPV6_ORIGIN: "${IPV6_ORIGIN:-}"
+      IPV4_ORIGIN: "${IPV4_ORIGIN:-}"
+      CORS_ORIGIN: "${CORS_ORIGIN:-}"
+    restart: unless-stopped
+    stop_grace_period: 10s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536

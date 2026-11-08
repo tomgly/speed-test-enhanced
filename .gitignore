@@ -1,0 +1,6 @@
+.DS_Store
+/speedtest
+/speedtest.exe
+*.test
+*.prof
+coverage.out
