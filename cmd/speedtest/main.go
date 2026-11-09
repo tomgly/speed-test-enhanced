@@ -28,12 +28,14 @@ func main() {
 }
 func run(args []string) error {
 	if len(args) == 0 {
-		fmt.Println("Speed Test Enhanced\nUsage: speedtest server|client|benchmark|healthcheck [options]")
+		fmt.Println("Speed Test Enhanced\nUsage: speedtest server|client|benchmark|healthcheck [options]\n       speedtest --version")
 		return nil
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	switch args[0] {
+	case "version", "--version":
+		return printVersion()
 	case "server":
 		return serve(ctx, args[1:])
 	case "client":

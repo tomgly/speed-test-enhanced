@@ -1,0 +1,24 @@
+{
+  "FixedFileInfo": {
+    "FileFlagsMask": "3f",
+    "FileOS": "040004",
+    "FileType": "01"
+  },
+  "StringFileInfo": {
+    "CompanyName": "tomgly",
+    "FileDescription": "Self-hosted network speed test with a web UI and Go CLI",
+    "FileVersion": "0.1.0",
+    "InternalName": "speedtest",
+    "LegalCopyright": "Copyright © 2026 tomgly. Licensed under MIT.",
+    "OriginalFilename": "speedtest.exe",
+    "ProductName": "Speed Test Enhanced",
+    "ProductVersion": "0.1.0"
+  },
+  "IconPath": "../../assets/icons/app.ico",
+  "VarFileInfo": {
+    "Translation": {
+      "LangID": "0409",
+      "CharsetID": "04B0"
+    }
+  }
+}
