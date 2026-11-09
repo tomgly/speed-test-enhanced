@@ -79,6 +79,7 @@ header {
   gap: var(--space-3);
 }
 .wordmark {
+  color: var(--muted);
   display: inline-flex;
   align-items: baseline;
   gap: var(--space-1);
@@ -87,14 +88,14 @@ header {
   font-weight: 600;
   letter-spacing: -.5px;
 }
-.wordmark span { font-size: 14px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
-.wordmark:hover { text-decoration: none; }
+.wordmark span { font-size: 14px; font-weight: 400; color: inherit; letter-spacing: 0; }
+.wordmark:hover { color: var(--text); text-decoration: none; }
 nav { display: flex; align-items: center; gap: var(--space-2); }
 .github-link { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); min-height: 48px; color: var(--muted); }
 .github-link svg { width: 20px; height: 20px; flex-shrink: 0; }
 .quiet { background: transparent; border-color: transparent; color: var(--muted); padding: var(--space-1) var(--space-2); }
 header nav .github-link { background: transparent; border: 0; border-radius: 0; color: var(--muted); text-decoration: none; text-underline-offset: 3px; outline: none; }
-header nav .github-link:hover { text-decoration: underline; }
+header nav .github-link:hover { color: var(--text); text-decoration: underline; }
 header nav .github-link:focus-visible { text-decoration: underline; text-decoration-thickness: 2px; }
 main {
   width: 100%;
@@ -126,6 +127,7 @@ body[data-phase=upload] #phase-label { color: var(--upload); }
 #live p { margin: 0; display: flex; justify-content: center; align-items: baseline; gap: var(--space-1); }
 .throughput strong { font-size: var(--speed-size); font-weight: var(--speed-weight); letter-spacing: -1px; line-height: 1.1; }
 #live strong { font-size: 64px; font-weight: var(--speed-weight); line-height: 1.1; letter-spacing: -1px; }
+#live strong.waiting { width: 1em; text-align: left; }
 #live-unit { color: var(--muted); font-size: 20px; min-height: 24px; }
 .results { order: 1; width: 100%; display: flex; flex-direction: column; align-items: center; gap: var(--group-gap); }
 .throughput { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--result-column-gap); text-align: left; margin-bottom: var(--space-1); }
@@ -179,7 +181,8 @@ body[data-state=complete] #result-actions { align-self: flex-start; }
 .clipboard-field { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; }
 body[data-state=idle] .run-state, body[data-state=running] .run-state { min-height: 4px; }
 body[data-state=complete] main { gap: var(--space-4); }
-footer { width: 100%; display: flex; justify-content: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); padding: var(--space-2); color: var(--muted); font-size: 14px; }
+footer { width: 100%; display: flex; justify-content: center; gap: 4px; white-space: nowrap; padding: var(--space-2); color: var(--muted); font-size: 14px; }
+footer a:hover { color: var(--text); }
 dialog { width: min(432px, calc(100% - 32px)); max-height: calc(100svh - 32px); overflow-y: auto; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: var(--space-3); }
 dialog::backdrop { background: #0009; }
 #settings-form { display: flex; flex-direction: column; gap: 12px; }
@@ -187,7 +190,7 @@ dialog::backdrop { background: #0009; }
 .dialog-header h2 { margin: 0; font-weight: 500; font-size: 20px; }
 #settings-close { min-height: 32px; padding: 0; font-size: 14px; }
 :is(#settings-close, header nav #settings-open) { background: transparent; border: 0; border-radius: 0; color: var(--muted); text-decoration: none; outline: none; box-shadow: none; }
-:is(#settings-close, header nav #settings-open):hover { color: var(--text); }
+:is(#settings-close, header nav #settings-open:not(:disabled)):hover { color: var(--text); }
 :is(#settings-close, header nav #settings-open):focus-visible { outline: 1px solid var(--muted); outline-offset: 2px; }
 :is(#settings-close, header nav #settings-open):focus:not(:focus-visible) { outline: none; }
 #settings-form label { display: grid; grid-template-columns: minmax(0, 1fr) 144px; align-items: center; gap: var(--space-2); font-size: 14px; line-height: 1.4; }
@@ -215,7 +218,6 @@ body[data-phase=upload] #gauge-fill { stroke: var(--upload); }
   .transfer-summary { gap: var(--space-2); font-size: 12px; }
   .duration { gap: 6px; }
   :is(#result-actions button, #settings-form .save) { min-height: 40px; }
-  footer { gap: var(--space-1); }
 }
 @media (max-width: 359px) {
   .transfer-summary { font-size: 11px; }

@@ -10,6 +10,7 @@ const liveSpeed = new SpeedResults.LiveSpeed();
 let gaugeScale = 1e9, tickScale = 0, liveUnit, frame = 0, previousFrame = 0, lastText = 0;
 let report = null, copyTimer;
 let runConfig;
+let waitingSince = 0;
 function theme() {
   document.documentElement.dataset.theme = config.theme === 'auto' ? (systemTheme.matches ? 'dark' : 'light') : config.theme;
 }
@@ -27,15 +28,26 @@ function drawScale() {
   for (let i = 1; i < 4; i++) $(`scale-${i}`).textContent = String(Number((Number(top.value) * i / 4).toPrecision(3)));
   $('scale-label').textContent = top.value;
 }
-function resetLive() {
+function showLive(bps) {
+  const value = format(bps, liveUnit); liveUnit = value.index;
+  $('live-value').classList.remove('waiting');
+  $('live-value').textContent = value.value; $('live-unit').textContent = value.unit;
+}
+function resetLive(waiting = busy) {
   liveSpeed.reset(); displaySpeed = animatedSpeed = 0;
   gaugeScale = 1e3; liveUnit = undefined; previousFrame = lastText = 0;
-  $('live-value').textContent = '—'; $('live-unit').textContent = '';
+  waitingSince = performance.now();
+  $('live-value').classList.toggle('waiting', waiting);
+  $('live-value').textContent = waiting ? '\u00a0' : '—'; $('live-unit').textContent = '';
   $('gauge-fill').style.strokeDashoffset = '100'; $('gauge-needle').style.transform = 'rotate(-120deg)'; drawScale();
 }
 function animate(time) {
   if (!busy) { frame = 0; return; }
-  if (liveSpeed.value === null) { frame = requestAnimationFrame(animate); return; }
+  if (liveSpeed.value === null) {
+    // A non-breaking space preserves the text baseline during the empty step.
+    $('live-value').textContent = '.'.repeat(Math.floor((time - waitingSince) / 400) % 4) || '\u00a0';
+    frame = requestAnimationFrame(animate); return;
+  }
   const dt = Math.min(100, time - (previousFrame || time)); previousFrame = time;
   animatedSpeed += (displaySpeed - animatedSpeed) * (reducedMotion.matches ? 1 : 1 - Math.exp(-dt / 180));
   gaugeScale = scale(Math.max(animatedSpeed, displaySpeed), gaugeScale);
@@ -43,8 +55,7 @@ function animate(time) {
   $('gauge-fill').style.strokeDashoffset = String(100 - fraction * 100);
   $('gauge-needle').style.transform = `rotate(${-120 + fraction * 240}deg)`;
   if (time - lastText >= 100) {
-    const value = format(displaySpeed, liveUnit); liveUnit = value.index;
-    $('live-value').textContent = value.value; $('live-unit').textContent = value.unit;
+    showLive(displaySpeed);
     drawScale();
     lastText = time;
   }
@@ -86,7 +97,7 @@ function start() {
   if (busy) return;
   resetResults();
   runConfig = { ...config };
-  resetLive();
+  resetLive(true);
   document.body.dataset.state = 'running';
   $('instrument').hidden = false;
   $('go').hidden = true; $('live').hidden = false; $('retry').hidden = true;
@@ -94,13 +105,16 @@ function start() {
   $('settings-open').disabled = true; $('status').textContent = 'Connecting…';
   $('status').classList.add('sr-only');
   $('phase-label').textContent = 'Connecting';
+  phase = ''; document.body.dataset.phase = '';
   busy = true; $('instrument').focus();
   try {
     worker = new Worker('assets/js/measurement-worker.js');
     worker.onerror = () => finish('Measurement could not start. Check browser support and server access.');
     worker.onmessage = ({ data }) => {
+      if (!busy) return;
       if (data.type === 'phase') {
         phase = data.phase; document.body.dataset.phase = phase; resetLive();
+        $('progress').value = 0;
         $('phase-label').textContent = phase === 'ping' ? 'Measuring latency' : phase === 'download' ? 'Download' : 'Upload';
         $('status').textContent = phase === 'ping' ? 'Measuring ping and jitter…' : `Measuring ${phase}…`;
       } else if (data.type === 'latency') {
@@ -110,15 +124,24 @@ function start() {
       } else if (data.type === 'sample') {
         displaySpeed = liveSpeed.update(data.bps, data.elapsed * 1000) ?? 0;
         $('phase-label').textContent = phase === 'download' ? 'Download' : 'Upload';
-        $('progress').value = (phase === 'download' ? 0 : 0.5) + data.progress / 2;
+        // Worker progress uses this direction's measured elapsed time and duration,
+        // excluding calibration/warm-up and reserving 100% for confirmed completion.
+        $('progress').value = Math.max(0, Math.min(.99, data.progress));
       } else if (data.type === 'result') {
         report.speeds[data.phase] = data.bps;
         result(data.phase, data.bps);
+        $('progress').value = 1;
+        liveSpeed.reset(); displaySpeed = liveSpeed.update(data.bps, 0);
+        showLive(data.bps);
       } else if (data.type === 'complete') {
         showDetails(data);
         finish('', 'complete');
       }
-      else if (data.type === 'restart') { resetResults(); resetLive(); }
+      else if (data.type === 'restart') {
+        resetResults(); resetLive(); $('progress').value = 0;
+        phase = ''; document.body.dataset.phase = '';
+        $('phase-label').textContent = 'Connecting'; $('status').textContent = 'Connecting…';
+      }
       else if (data.type === 'error') finish(data.message);
       else if (data.type === 'cancelled') finish('Test cancelled');
     };

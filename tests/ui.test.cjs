@@ -8,7 +8,10 @@ function ui({ clipboard = true, stored = null, reducedMotion = false } = {}) {
   const frames = new Map(); let frameID = 0;
   const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
   function element(id, hidden = false) {
-    return { id, hidden, textContent: '', value: '', style: {}, handlers: {}, classList: { add() {}, remove() {} },
+    const classes = new Set();
+    return { id, hidden, textContent: '', value: '', style: {}, handlers: {}, classList: {
+      add(name) { classes.add(name); }, remove(name) { classes.delete(name); },
+      toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); }, contains(name) { return classes.has(name); } },
       addEventListener(type, handler) { this.handlers[type] = handler; }, focus() {}, select() {}, remove() {} };
   }
   for (const match of html.matchAll(/<[^>]+\bid="([^"]+)"[^>]*>/g)) elements.set(match[1], element(match[1], /\bhidden\b/.test(match[0])));
@@ -30,9 +33,74 @@ function ui({ clipboard = true, stored = null, reducedMotion = false } = {}) {
       createElement: () => element('temporary'), addEventListener: (type, handler) => { documentHandlers[type] = handler; }, execCommand: command => { copied.push(command); return true; } } });
   vm.runInContext(fs.readFileSync(require.resolve('../assets/js/ui.js'), 'utf8'), sandbox);
   return { elements, workers, copied, click: id => elements.get(id).handlers.click(), escape: () => documentHandlers.keydown({ key: 'Escape' }), saved: () => stored,
+    pendingFrames: () => frames.size,
     draw: time => { const pending = [...frames.values()]; frames.clear(); for (const callback of pending) callback(time); } };
 }
 const complete = { type: 'complete', usage: { download: { bytes: 2e9, duration: 13.2 }, upload: { bytes: 1e9, duration: 13.1 } }, connection: { client: '2001:db8::1234', server: '2001:db8::1' } };
+
+test('header and footer links preserve the GitHub icon and attribution', () => {
+  const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+  assert.match(html, /<a class="github-link" href="https:\/\/github.com\/tomgly\/speed-test-enhanced" target="_blank" rel="noopener noreferrer"[^>]*><svg[\s\S]*?<\/svg><span>GitHub<\/span><\/a>/);
+  assert.match(html, /<footer><a href="\/">Speed Test Enhanced<\/a><span>made by<\/span><a href="https:\/\/github.com\/tomgly"[^>]*>tomgly<\/a><\/footer>/);
+  assert.ok(fs.existsSync(require.resolve('../LICENSE')));
+});
+
+test('waiting dots cycle in the existing frame loop and stop on speed, errors or cancellation', () => {
+  for (const end of ['error', 'cancelled', 'escape', 'worker-error']) {
+    const h = ui();
+    assert.equal(h.elements.get('live').hidden, true);
+    assert.equal(h.pendingFrames(), 0);
+    h.click('go'); const worker = h.workers[0], value = h.elements.get('live-value');
+    for (const [time, text] of [[0, '\u00a0'], [400, '.'], [800, '..'], [1200, '...'], [1600, '\u00a0']]) {
+      h.draw(time); assert.equal(value.textContent, text);
+      assert.equal(value.classList.contains('waiting'), true);
+      assert.equal(h.pendingFrames(), 1);
+    }
+    worker.emit({ type: 'phase', phase: 'download' });
+    worker.emit({ type: 'sample', bps: 0, elapsed: .2, progress: .1 }); h.draw(1400);
+    assert.equal(value.textContent, '0'); assert.equal(value.classList.contains('waiting'), false);
+    worker.emit({ type: 'phase', phase: 'upload' });
+    assert.equal(value.textContent, '\u00a0');
+    if (end === 'escape') h.escape();
+    else if (end === 'worker-error') worker.onerror();
+    else worker.emit({ type: end, message: 'Server unavailable' });
+    assert.equal(h.pendingFrames(), 0); assert.equal(worker.terminated, true);
+    assert.equal(value.classList.contains('waiting'), false);
+    assert.equal(h.elements.get('progress').hidden, true);
+    worker.emit({ type: 'phase', phase: 'download' }); h.draw(1800);
+    assert.equal(value.textContent, '—'); assert.equal(h.pendingFrames(), 0);
+    h.click('retry'); assert.equal(value.textContent, '\u00a0'); assert.equal(h.pendingFrames(), 1);
+  }
+});
+
+test('Auto and Manual share one progress bar that resets and completes each direction', () => {
+  for (const mode of ['auto', 'manual']) {
+    const h = ui({ stored: JSON.stringify({ mode, duration: 20 }) });
+    h.click('go'); const worker = h.workers[0], progress = h.elements.get('progress');
+    assert.equal(worker.request.settings.mode, mode);
+    for (const phase of ['download', 'upload']) {
+      worker.emit({ type: 'phase', phase }); assert.equal(progress.value, 0);
+      worker.emit({ type: 'calibration', phase, bps: 1e9 }); assert.equal(progress.value, 0);
+      for (const elapsed of [2, 10, 19.8, 21]) {
+        worker.emit({ type: 'sample', phase, bps: 1e9, elapsed, progress: Math.min(.99, elapsed / 20) });
+        assert.equal(progress.value, Math.min(.99, elapsed / 20));
+      }
+      worker.emit({ type: 'result', phase, bps: 2e9 });
+      assert.equal(progress.value, 1); assert.equal(h.elements.get('live-value').textContent, '2');
+      h.draw(200); assert.equal(h.elements.get('live-value').textContent, '2');
+    }
+    worker.emit({ type: 'restart' }); assert.equal(progress.value, 0);
+    assert.equal(h.elements.get('live-value').textContent, '\u00a0');
+    worker.emit({ type: 'phase', phase: 'download' }); assert.equal(progress.value, 0);
+    worker.emit({ type: 'result', phase: 'download', bps: 2e9 });
+    worker.emit({ type: 'phase', phase: 'upload' }); assert.equal(progress.value, 0);
+    worker.emit({ type: 'result', phase: 'upload', bps: 3e9 });
+    worker.emit(complete);
+    assert.equal(h.pendingFrames(), 0); assert.equal(progress.hidden, true);
+    assert.equal(h.elements.get('download-value').textContent, '2');
+    assert.equal(h.elements.get('upload-value').textContent, '3');
+  }
+});
 test('measurement shows only the shared instrument and progress; details appear on completion', () => {
   const h = ui();
   assert.equal(h.elements.has('history'), false);
@@ -40,7 +108,7 @@ test('measurement shows only the shared instrument and progress; details appear 
   h.click('go'); const worker = h.workers[0];
   worker.emit({ type: 'latency', ping: 1.2, jitter: .3 });
   worker.emit({ type: 'calibration', phase: 'download', bps: 125e9, connections: 128 });
-  assert.equal(h.elements.get('live-value').textContent, '\u2014');
+  assert.equal(h.elements.get('live-value').textContent, '\u00a0');
   assert.equal(h.elements.get('results').hidden, true);
   for (const phase of ['download', 'upload']) {
     worker.emit({ type: 'phase', phase });
@@ -69,7 +137,7 @@ test('only live text and gauge are smoothed; final results stay independent', as
   for (const reducedMotion of [false, true]) {
     const h = ui({ reducedMotion }); h.click('go'); const worker = h.workers[0];
     worker.emit({ type: 'phase', phase: 'download' }); h.draw(100);
-    assert.equal(h.elements.get('live-value').textContent, '—');
+    assert.equal(h.elements.get('live-value').textContent, '\u00a0');
     worker.emit({ type: 'sample', phase: 'download', bps: 10e9, elapsed: .2, phaseElapsed: 1.2, progress: .1 }); h.draw(200);
     assert.equal(h.elements.get('live-value').textContent, '10');
     worker.emit({ type: 'sample', phase: 'download', bps: 7e9, elapsed: .4, phaseElapsed: 1.4, progress: .2 }); h.draw(300);
@@ -77,13 +145,13 @@ test('only live text and gauge are smoothed; final results stay independent', as
     worker.emit({ type: 'result', phase: 'download', bps: 8.31e9 });
     assert.equal(h.elements.get('download-value').textContent, '8.31');
     worker.emit({ type: 'phase', phase: 'upload' }); h.draw(400);
-    assert.equal(h.elements.get('live-value').textContent, '—');
+    assert.equal(h.elements.get('live-value').textContent, '.');
     worker.emit({ type: 'sample', phase: 'upload', bps: 850, elapsed: .2, phaseElapsed: 1.2, progress: .1 }); h.draw(500);
     assert.equal(h.elements.get('live-value').textContent, '850');
     worker.emit({ type: 'result', phase: 'upload', bps: 900 }); worker.emit(complete);
     assert.equal(h.elements.get('live-value').textContent, '—');
     await h.click('copy'); assert.match(h.copied[0], /Download: 8.31 Gbps/); assert.match(h.copied[0], /Upload: 900 bps/);
-    h.click('retry'); assert.equal(h.elements.get('live-value').textContent, '—');
+    h.click('retry'); assert.equal(h.elements.get('live-value').textContent, '\u00a0');
   }
 });
 
