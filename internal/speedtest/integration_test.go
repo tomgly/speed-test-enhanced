@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -348,5 +349,51 @@ func TestIPv6Native(t *testing.T) {
 		if r.Client != "::1" || r.Server != "::1" {
 			t.Fatal(r.Client, r.Server)
 		}
+	}
+}
+
+func TestUDPDatagramSizes(t *testing.T) {
+	s := localServer(t)
+	c := NewClient(s.Address())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.Open(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	cfg := DefaultConfig()
+	cfg.Protocol, cfg.Mode, cfg.Connections, cfg.Rate = "udp", "manual", 1, 20_000_000
+	for _, size := range []int{64, 1400, 65000, 1400} {
+		cfg.PacketSize = size
+		r, err := c.Window(ctx, cfg, "upload", 1, 80*time.Millisecond, nil)
+		if err != nil || r.Bytes == 0 || r.Bytes != r.ReceivedPackets*uint64(size-udpHeader) || r.LostPackets+r.ReceivedPackets != r.SentPackets {
+			t.Fatal(size, r, err)
+		}
+	}
+}
+
+func TestUDPListenerSurvivesOversizedUnknownDatagram(t *testing.T) {
+	s := localServer(t)
+	u, err := net.DialUDP("udp", nil, s.UDP.LocalAddr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u.Write(make([]byte, 65000)); err != nil {
+		u.Close()
+		t.Fatal(err)
+	}
+	u.Close()
+	c := NewClient(s.Address())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.Open(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	cfg := DefaultConfig()
+	cfg.Protocol, cfg.Mode, cfg.Connections, cfg.Rate = "udp", "manual", 1, 20_000_000
+	r, err := c.Window(ctx, cfg, "upload", 1, 80*time.Millisecond, nil)
+	if err != nil || r.Bytes == 0 {
+		t.Fatal(r, err)
 	}
 }

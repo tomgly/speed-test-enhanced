@@ -207,14 +207,15 @@ func (s *packetTracker) observe(seq uint64, sent int64, n int, now int64) {
 }
 
 type udpPeer struct {
-	mu     sync.Mutex
-	addr   netip.AddrPort
-	ip     netip.Addr
-	ready  chan struct{}
-	upload bool
-	active bool
-	stats  packetTracker
-	size   int
+	mu      sync.Mutex
+	addr    netip.AddrPort
+	ip      netip.Addr
+	ready   chan struct{}
+	upload  bool
+	active  bool
+	stats   packetTracker
+	size    int
+	control net.Conn
 }
 
 func (s *Server) receiveUDP() {
@@ -222,6 +223,17 @@ func (s *Server) receiveUDP() {
 	for {
 		n, addr, err := s.UDP.ReadFromUDPAddrPort(b)
 		if err != nil {
+			// A dead listener is an I/O failure, not packet loss. Fail the
+			// active UDP controls instead of acknowledging partial counters.
+			s.mu.Lock()
+			controls := make([]net.Conn, 0, len(s.peers))
+			for _, peer := range s.peers {
+				controls = append(controls, peer.control)
+			}
+			s.mu.Unlock()
+			for _, control := range controls {
+				control.Close()
+			}
 			return
 		}
 		if n < udpHeader {
@@ -260,7 +272,7 @@ func (s *Server) handleUDP(ctx context.Context, c net.Conn, h handshake) {
 	if err != nil {
 		return
 	}
-	p := &udpPeer{ip: ip.Unmap(), ready: make(chan struct{}), upload: h.Direction == "upload", size: h.PacketSize}
+	p := &udpPeer{ip: ip.Unmap(), ready: make(chan struct{}), upload: h.Direction == "upload", size: h.PacketSize, control: c}
 	s.mu.Lock()
 	s.peers[key] = p
 	s.mu.Unlock()
@@ -345,18 +357,28 @@ func sendUDP(ctx context.Context, duration float64, rate uint64, size int, key [
 	interval := float64(payload) * 8 / float64(rate) * float64(time.Second)
 	batch := max(1, min(64, int(200_000/max(1, interval))))
 	next := start
+	var timer *time.Timer
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
 	for time.Now().Before(end) {
 		if err := ctx.Err(); err != nil {
 			return seq, err
 		}
 		now := time.Now()
 		if next.After(now) {
-			t := time.NewTimer(time.Until(minTime(next, end)))
+			delay := time.Until(minTime(next, end))
+			if timer == nil {
+				timer = time.NewTimer(delay)
+			} else {
+				timer.Reset(delay)
+			}
 			select {
 			case <-ctx.Done():
-				t.Stop()
 				return seq, ctx.Err()
-			case <-t.C:
+			case <-timer.C:
 			}
 		}
 		if !time.Now().Before(end) {
@@ -578,14 +600,18 @@ func (s *nativeStream) runUDP(ctx context.Context, h handshake, confirmed *atomi
 	var mu sync.Mutex
 	var stats packetTracker
 	arrivalEpoch := time.Now()
-	done := make(chan error, 1)
+	type receiveEnd struct {
+		err error
+		at  time.Time
+	}
+	done := make(chan receiveEnd, 1)
 	s.udp.SetReadDeadline(time.Now().Add(seconds(h.Seconds) + 5*time.Second))
 	go func() {
 		b := make([]byte, 65536)
 		for {
 			n, err := s.udp.Read(b)
 			if err != nil {
-				done <- err
+				done <- receiveEnd{err, time.Now()}
 				return
 			}
 			if n < udpHeader || string(b[:16]) != string(s.key[:]) {
@@ -606,8 +632,17 @@ func (s *nativeStream) runUDP(ctx context.Context, h handshake, confirmed *atomi
 		<-done
 		return packetStats{}, err
 	}
-	s.udp.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-	<-done
+	drainDeadline := time.Now().Add(100 * time.Millisecond)
+	if err := s.udp.SetReadDeadline(drainDeadline); err != nil {
+		s.udp.Close()
+		<-done
+		return packetStats{}, err
+	}
+	end := <-done
+	var receiveErr net.Error
+	if !errors.As(end.err, &receiveErr) || !receiveErr.Timeout() || end.at.Before(drainDeadline) {
+		return packetStats{}, end.err
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	stats.Sent = sender.Sent

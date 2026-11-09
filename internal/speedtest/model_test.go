@@ -2,6 +2,7 @@ package speedtest
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"math"
 	"reflect"
@@ -181,6 +182,35 @@ func TestUDPPacingHonorsShortDeadlineAtLowRate(t *testing.T) {
 	count, err := sendUDP(context.Background(), .05, 1, 1400, [16]byte{}, func(b []byte) (int, error) { return len(b), nil })
 	if err != nil || count > 1 || time.Since(start) > time.Second {
 		t.Fatal(count, err, time.Since(start))
+	}
+}
+
+func TestUDPPacingCancelsPendingWait(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	count, err := sendUDP(ctx, 5, 1, 1400, [16]byte{}, func(b []byte) (int, error) { return len(b), nil })
+	if !errors.Is(err, context.DeadlineExceeded) || count > 1 || time.Since(start) > time.Second {
+		t.Fatal(count, err, time.Since(start))
+	}
+}
+
+func TestUDPPacingPreservesPacketsAcrossWaits(t *testing.T) {
+	var key [16]byte
+	key[0] = 7
+	var written, previousTime uint64
+	count, err := sendUDP(context.Background(), .1, 1_000_000, 1400, key, func(b []byte) (int, error) {
+		seq := binary.BigEndian.Uint64(b[16:24])
+		sent := binary.BigEndian.Uint64(b[24:32])
+		if len(b) != 1400 || b[0] != key[0] || seq != written+1 || sent < previousTime {
+			t.Fatal("invalid paced packet", len(b), seq, sent)
+		}
+		written++
+		previousTime = sent
+		return len(b), nil
+	})
+	if err != nil || count != written || count < 2 || count > 11 {
+		t.Fatal(count, written, err)
 	}
 }
 
