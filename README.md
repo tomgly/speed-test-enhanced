@@ -135,11 +135,11 @@ Measured on Windows 11 (build 26300), Core i5-12600K (16 logical CPUs), Go 1.27.
 | TCP | 1 | 28.093 | 25.889 | — |
 | TCP | 4 | 109.024 | 104.799 | — |
 | TCP | 16 | 150.520 | 150.446 | — |
-| UDP | 1 | 0.982 | 0.981 | 0.0000 / 0.0000 |
-| UDP | 4 | 0.978 | 0.985 | 0.0000 / 0.0000 |
-| UDP | 16 | 0.973 | 0.984 | 0.0000 / 0.0000 |
+| UDP | 1 | 1.703 | 1.856 | 0.0000 / 0.0000 |
+| UDP | 4 | 0.923 | 5.233 | 0.0000 / 0.0000 |
+| UDP | 16 | 1.234 | 4.834 | 0.0000 / 0.0000 |
 
-UDP used a 1 Gbps aggregate payload target and 1,400-byte datagrams (including the 32-byte measurement header); its rates reflect this pacing. Packet loss lists download/upload percentages of lost/sent packets. All 27 runs completed without errors.
+UDP used 1,400-byte datagrams (including the 32-byte measurement header). Its aggregate payload targets were tuned separately for download/upload: 2/2 Gbps at 1 connection, 4/50 Gbps at 4 connections, and 5/5 Gbps at 16 connections. UDP rows show the highest tested median received payload rates with loss at most 0.1% in every trial; all selected trials had zero loss. Rates include completion/drain time. Packet loss lists median download/upload percentages of lost/sent packets. HTTP and TCP had no configured rate limit.
 
 These loopback results vary with hardware and system load; physical links require separate validation. Performance improvements will continue as time permits.
 
