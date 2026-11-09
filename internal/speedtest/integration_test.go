@@ -378,6 +378,11 @@ func TestUDPListenerSurvivesOversizedUnknownDatagram(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Match the client buffer size so OS defaults do not reject the large datagram.
+	if err := u.SetWriteBuffer(4 * 1024 * 1024); err != nil {
+		u.Close()
+		t.Fatal(err)
+	}
 	if _, err := u.Write(make([]byte, 65000)); err != nil {
 		u.Close()
 		t.Fatal(err)
