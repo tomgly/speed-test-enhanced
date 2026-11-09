@@ -20,6 +20,8 @@ Browser uploads compare fetch and XHR using three alternating pairs of 0.3-secon
 
 Requires Go 1.24 or newer. Supports Windows, Linux, and macOS.
 
+Native execution is recommended, especially for high-speed measurements. Container networking and virtualization can affect performance; Docker remains supported as an option.
+
 ```powershell
 go build -trimpath -o speedtest.exe ./cmd/speedtest
 ```
@@ -72,8 +74,6 @@ HTTPS pages require HTTPS measurement origins. For HTTP measurement endpoints, c
 
 ## Docker
 
-Native execution is recommended for performance measurements. Docker is optional.
-
 Requires Docker Engine with Compose on Linux.
 
 ```sh
@@ -122,6 +122,26 @@ go test ./internal/speedtest -run '^$' -bench BenchmarkTransport -benchtime=1x -
 ```
 
 CI runs formatting, static analysis, Go/JavaScript tests, and builds. Run performance benchmarks, race detection, and Docker communication tests locally.
+
+## Windows 11 native benchmark
+
+Measured on Windows 11 (build 26300), Core i5-12600K (16 logical CPUs), Go 1.27.0. Server and CLI ran as separate native processes on IPv6 loopback (`::1`), in Manual mode: 10 seconds per direction, a separate 1-second warm-up, and three sequential runs per configuration. Values below are medians.
+
+| Protocol | Connections | Download (Gbps) | Upload (Gbps) | Packet loss D/U (%) |
+| --- | ---: | ---: | ---: | ---: |
+| HTTP | 1 | 28.368 | 23.895 | — |
+| HTTP | 4 | 102.613 | 92.334 | — |
+| HTTP | 16 | 117.965 | 77.055 | — |
+| TCP | 1 | 28.093 | 25.889 | — |
+| TCP | 4 | 109.024 | 104.799 | — |
+| TCP | 16 | 150.520 | 150.446 | — |
+| UDP | 1 | 0.982 | 0.981 | 0.0000 / 0.0000 |
+| UDP | 4 | 0.978 | 0.985 | 0.0000 / 0.0000 |
+| UDP | 16 | 0.973 | 0.984 | 0.0000 / 0.0000 |
+
+UDP used a 1 Gbps aggregate payload target and 1,400-byte datagrams (including the 32-byte measurement header); its rates reflect this pacing. Packet loss lists download/upload percentages of lost/sent packets. All 27 runs completed without errors.
+
+These loopback results vary with hardware and system load; physical links require separate validation. Performance improvements will continue as time permits.
 
 ## License
 
