@@ -181,10 +181,17 @@ func (c *Client) Window(ctx context.Context, config Config, direction string, n 
 		if failure != nil {
 			return Transfer{}, failure
 		}
-	} else if direction == "upload" && c.payload == nil {
-		c.payload = make([]byte, 8*1024*1024)
-		if _, err := rand.Read(c.payload); err != nil {
-			return Transfer{}, err
+	}
+	if direction == "upload" && config.Protocol != "udp" {
+		size := BufferSize
+		if config.Protocol == "http" {
+			size = 8 * 1024 * 1024
+		}
+		if len(c.payload) < size {
+			c.payload = make([]byte, size)
+			if _, err := rand.Read(c.payload); err != nil {
+				return Transfer{}, err
+			}
 		}
 	}
 	var confirmed atomic.Uint64
@@ -201,14 +208,21 @@ func (c *Client) Window(ctx context.Context, config Config, direction string, n 
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
+			var buffer []byte
+			if direction == "download" && config.Protocol != "udp" {
+				buffer = make([]byte, BufferSize)
+			} else if config.Protocol == "tcp" {
+				// Connections only read the common payload; no per-stream copy.
+				buffer = c.payload[:BufferSize]
+			}
 			ready.Done()
 			<-begin
 			var st packetStats
 			var err error
 			if config.Protocol == "http" {
-				err = c.httpStream(ctx, h, &confirmed, start)
+				err = c.httpStream(ctx, h, &confirmed, start, buffer)
 			} else {
-				st, err = streams[i].run(ctx, h, &confirmed)
+				st, err = streams[i].run(ctx, h, &confirmed, buffer)
 			}
 			finished <- time.Now()
 			if err != nil {
@@ -311,7 +325,7 @@ func (w uploadWriter) Write(b []byte) (int, error) {
 	return total, nil
 }
 
-func (c *Client) httpStream(ctx context.Context, h handshake, confirmed *atomic.Uint64, start time.Time) error {
+func (c *Client) httpStream(ctx context.Context, h handshake, confirmed *atomic.Uint64, start time.Time, buffer []byte) error {
 	base := "?id=" + url.QueryEscape(h.ID)
 	if h.Direction == "download" {
 		streamStart := time.Now()
@@ -323,9 +337,8 @@ func (c *Client) httpStream(ctx context.Context, h handshake, confirmed *atomic.
 		if r.Header.Get("Content-Encoding") != "" {
 			return errors.New("compressed measurement response")
 		}
-		b := make([]byte, BufferSize)
 		for {
-			n, err := r.Body.Read(b)
+			n, err := r.Body.Read(buffer)
 			confirmed.Add(uint64(n))
 			if err == io.EOF {
 				if time.Since(streamStart) < seconds(h.Seconds) {

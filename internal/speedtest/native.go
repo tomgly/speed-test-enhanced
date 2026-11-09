@@ -453,9 +453,10 @@ func (s *nativeStream) close() {
 	}
 }
 
-func (s *nativeStream) run(ctx context.Context, h handshake, confirmed *atomic.Uint64) (packetStats, error) {
+func (s *nativeStream) run(ctx context.Context, h handshake, confirmed *atomic.Uint64, buffer []byte) (packetStats, error) {
 	stop := context.AfterFunc(ctx, s.close)
 	defer stop()
+	start := time.Now()
 	if _, err := s.c.Write([]byte{1}); err != nil {
 		return packetStats{}, err
 	}
@@ -463,15 +464,17 @@ func (s *nativeStream) run(ctx context.Context, h handshake, confirmed *atomic.U
 		return s.runUDP(ctx, h, confirmed)
 	}
 	if h.Direction == "download" {
-		b := make([]byte, BufferSize)
 		total := uint64(0)
 		for {
-			n, err := s.c.Read(b)
+			n, err := s.c.Read(buffer)
 			if n > 0 {
 				total += uint64(n)
 				confirmed.Add(uint64(n))
 			}
 			if err == io.EOF {
+				if time.Since(start) < seconds(h.Seconds) {
+					return packetStats{}, errors.New("download stream ended before the measurement deadline")
+				}
 				return packetStats{Bytes: total}, nil
 			}
 			if err != nil {
@@ -502,13 +505,11 @@ func (s *nativeStream) run(ctx context.Context, h handshake, confirmed *atomic.U
 			confirmed.Add(n - old)
 		}
 	}()
-	b := make([]byte, BufferSize)
-	rand.Read(b)
 	end := time.Now().Add(seconds(h.Seconds))
 	sent := uint64(0)
 	var sendErr error
 	for time.Now().Before(end) {
-		n, err := s.c.Write(b)
+		n, err := s.c.Write(buffer)
 		sent += uint64(n)
 		if err != nil {
 			sendErr = err

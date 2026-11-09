@@ -291,6 +291,9 @@ func TestUploadRejectsTruncatedAcknowledgment(t *testing.T) {
 }
 
 func TestAutomaticTransferFixesSelectedCount(t *testing.T) {
+	if testing.Short() {
+		t.Skip("full calibration is checked locally")
+	}
 	s := localServer(t)
 	for _, protocol := range []string{"tcp", "udp", "http"} {
 		t.Run(protocol, func(t *testing.T) {

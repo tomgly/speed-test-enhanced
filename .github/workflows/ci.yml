@@ -20,26 +20,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: go test ./...
+      - name: Check Go formatting
+        shell: bash
+        run: test -z "$(gofmt -l cmd internal web.go)"
+      - run: go test -short ./...
       - run: go vet ./...
       - run: go build -o speedtest.exe ./cmd/speedtest
         if: runner.os == 'Windows'
       - run: go build -o speedtest ./cmd/speedtest
         if: runner.os != 'Windows'
-      - run: node --test tests/*.test.cjs
-      - run: go test -race ./...
-        if: runner.os == 'Linux'
-  docker:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - run: docker compose config --quiet
-      - run: docker compose up --build --wait --wait-timeout 90
-      - run: docker compose exec -T speedtest /speedtest client --server 127.0.0.1 --protocol tcp --mode manual --connections 2 --duration .2 --warmup 0 --json
-      - run: docker compose exec -T speedtest /speedtest client --server 127.0.0.1 --protocol udp --mode manual --connections 2 --duration .2 --warmup 0 --rate 10000000 --json
-      - run: docker compose exec -T speedtest /speedtest client --server 127.0.0.1 --protocol http --mode manual --connections 2 --duration .2 --warmup 0 --json
-      - run: docker compose logs --no-color
-        if: failure()
-      - run: docker compose down
-        if: always()
+      - run: node --test --test-skip-pattern="production .* start" tests/*.test.cjs

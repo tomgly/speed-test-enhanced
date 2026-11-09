@@ -72,6 +72,8 @@ HTTPS pages require HTTPS measurement origins. For HTTP measurement endpoints, c
 
 ## Docker
 
+Native execution is recommended for performance measurements. Docker is optional.
+
 Requires Docker Engine with Compose on Linux.
 
 ```sh
@@ -112,6 +114,14 @@ Run repeatable benchmarks and retain the raw JSON:
 ```
 
 Without `--server`, benchmarks use a loopback server in the same process. Compare browser/native, loopback/remote, and Docker/native results separately.
+
+For local IPv6 loopback CPU, allocation, and contention profiles of both endpoints:
+
+```sh
+go test ./internal/speedtest -run '^$' -bench BenchmarkTransport -benchtime=1x -cpuprofile cpu.prof -memprofile memory.prof -mutexprofile mutex.prof
+```
+
+CI runs formatting, static analysis, Go/JavaScript tests, and builds. Run performance benchmarks, race detection, and Docker communication tests locally.
 
 ## License
 

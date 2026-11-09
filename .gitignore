@@ -2,5 +2,8 @@
 /speedtest
 /speedtest.exe
 *.test
+*.test.exe
 *.prof
 coverage.out
+/benchmarks/native/
+/benchmark-results/

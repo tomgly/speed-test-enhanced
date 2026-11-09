@@ -44,6 +44,6 @@
 - After browser changes, check real measurements, cancellation, settings, copy/retry, desktop/mobile, and Light/Dark. UI tests do not replace visual checks against the original CSS, markup, and screenshots.
 - Use `speedtest benchmark` for measured performance; retain conditions and raw JSON. Distinguish browser/native, loopback/remote, and Docker/native.
 - Do not claim 100–200 Gbps without corresponding measurements. Distinguish runtime heap from process RSS and client-only from combined resource use.
-- Keep standalone and Docker startup working. CI covers Windows, Linux, macOS, and Linux Docker.
+- Keep standalone and optional Docker startup working. CI covers formatting, static analysis, Go/JavaScript tests, and builds on Windows, Linux, and macOS; run race detection, Docker communication tests, and performance benchmarks locally only.
 - Update existing documentation when behavior changes. Avoid history, migration notes, unnecessary documents, and speculative bottleneck claims.
 - Review the final diff; briefly report changed files, checks, measured results, limitations, and unrun tests.
