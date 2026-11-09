@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <title>Speed Test Enhanced</title>
+  <desc>A teal speedometer without tick marks, with a needle angled thirty degrees above horizontal and violet right-pointing double chevrons below the hub to represent acceleration.</desc>
+  <defs>
+    <linearGradient id="acceleration" x1="208" y1="354" x2="304" y2="406" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#AA94E4"/>
+      <stop offset="1" stop-color="#CEBBFF"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1D2B38"/>
+      <stop offset="1" stop-color="#10151B"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#tile)"/>
+  <rect x="25" y="25" width="462" height="462" rx="107" stroke="#354452" stroke-width="2"/>
+  <path d="M120 364a170 170 0 1 1 272 0" stroke="#43525F" stroke-width="34" stroke-linecap="round"/>
+  <path d="M120 364A170 170 0 1 1 403.224 177" stroke="#53C9C1" stroke-width="34" stroke-linecap="round"/>
+  <g transform="translate(256 262) rotate(-30)">
+    <path d="M0-14 134 0 0 14Z" fill="#EEF2F6"/>
+  </g>
+  <circle cx="256" cy="262" r="23" fill="#53C9C1"/>
+  <path d="m208 354 26 26-26 26h24l26-26-26-26Zm44 0 26 26-26 26h24l26-26-26-26Z" fill="url(#acceleration)"/>
+</svg>
