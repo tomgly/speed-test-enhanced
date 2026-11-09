@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Set application version from tag
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          tag = os.environ['GITHUB_REF_NAME']
+          match = re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag)
+          if not match or any(int(part) > 65535 for part in match.groups()):
+              raise SystemExit('Use a stable vMAJOR.MINOR.PATCH tag with components from 0 to 65535.')
+          path = Path('cmd/speedtest/versioninfo.json')
+          info = json.loads(path.read_text(encoding='utf-8'))
+          info['StringFileInfo']['FileVersion'] = tag[1:]
+          info['StringFileInfo']['ProductVersion'] = tag[1:]
+          path.write_text(json.dumps(info, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+          PY
+      - name: Generate Windows metadata and icons
+        run: go generate ./cmd/speedtest
+      - name: Check Go formatting
+        run: test -z "$(gofmt -l cmd internal web.go)"
+      - run: go test -short ./...
+      - run: go vet ./...
+      - run: go build -trimpath -o speedtest ./cmd/speedtest
+      - run: node --test --test-skip-pattern="production .* start" tests/*.test.cjs
+      - name: Build and package all platforms
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          import subprocess
+          import tarfile
+          import tempfile
+          import zipfile
+          from pathlib import Path
+
+          tag = os.environ['GITHUB_REF_NAME']
+          dist = Path('dist')
+          dist.mkdir(exist_ok=True)
+          documentation = ['README.md', 'LICENSE', 'assets/icons/app.svg', 'assets/icons/LICENSE']
+          archives = []
+          with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as temporary:
+              for target_os in ['windows', 'darwin', 'linux']:
+                  for arch in ['amd64', 'arm64']:
+                      name = f'speed-test-enhanced_{tag}_{target_os}_{arch}'
+                      binary_name = 'speedtest.exe' if target_os == 'windows' else 'speedtest'
+                      binary = Path(temporary) / name / binary_name
+                      binary.parent.mkdir()
+                      env = dict(os.environ, GOOS=target_os, GOARCH=arch)
+                      subprocess.run(['go', 'build', '-trimpath', '-o', str(binary), './cmd/speedtest'], env=env, check=True)
+                      binary.chmod(0o755)
+                      files = [(binary, binary_name)] + [(Path(path), path) for path in documentation]
+                      if target_os == 'windows':
+                          archive = dist / f'{name}.zip'
+                          with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as output:
+                              for path, member in files:
+                                  output.write(path, arcname=member)
+                      else:
+                          archive = dist / f'{name}.tar.gz'
+                          with tarfile.open(archive, 'w:gz') as output:
+                              for path, member in files:
+                                  entry = output.gettarinfo(str(path), arcname=member)
+                                  if member == binary_name:
+                                      entry.mode = 0o755
+                                  with path.open('rb') as content:
+                                      output.addfile(entry, content)
+                      archives.append(archive)
+                      print(f'Built {archive.name}', flush=True)
+          checksums = ''.join(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n' for path in sorted(archives))
+          (dist / 'SHA256SUMS.txt').write_text(checksums, encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Publish release with all assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            if [ "$draft" != true ]; then
+              echo 'This release is already published; its assets will not be replaced.' >&2
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" --draft --verify-tag --generate-notes --title "Speed Test Enhanced $RELEASE_TAG"
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false
