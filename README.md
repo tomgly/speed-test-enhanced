@@ -76,6 +76,40 @@ Flags override environment variables:
 
 HTTPS pages require HTTPS measurement origins. For HTTP measurement endpoints, configure reverse proxies without compression, buffering, caching, or request-size restrictions. Native TCP/UDP connections are direct and unencrypted. Bind them to the intended measurement interface.
 
+## Linux (systemd)
+
+For persistent Linux deployments, a systemd service file is provided in [`systemd/speedtest.service`](systemd/speedtest.service).
+
+Install the binary and create a dedicated service user:
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin speedtest
+sudo install -m 755 speedtest /usr/local/bin/speedtest
+sudo cp systemd/speedtest.service /etc/systemd/system/
+```
+
+Optionally configure ports in `/etc/default/speedtest`:
+
+```ini
+HTTP_ADDR=:3000
+TCP_ADDR=:3001
+UDP_ADDR=:3002
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now speedtest
+```
+
+Check status and logs:
+
+```bash
+sudo systemctl status speedtest
+sudo journalctl -u speedtest -f
+```
+
 ## Docker
 
 Requires Docker Engine with Compose on Linux.

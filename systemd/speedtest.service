@@ -1,0 +1,21 @@
+[Unit]
+Description=Speed Test Enhanced
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=speedtest
+Group=speedtest
+ExecStart=/usr/local/bin/speedtest server
+EnvironmentFile=-/etc/default/speedtest
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
