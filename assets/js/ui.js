@@ -7,7 +7,7 @@ const systemTheme = matchMedia('(prefers-color-scheme: dark)');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let worker = null, busy = false, phase = '', displaySpeed = 0, animatedSpeed = 0;
 const liveSpeed = new SpeedResults.LiveSpeed();
-let gaugeScale = 1e9, tickScale = 0, liveUnit, frame = 0, previousFrame = 0, lastText = 0;
+let gaugeScale = 1e9, tickScale = 0, tickUnit, liveUnit, frame = 0, previousFrame = 0, lastText = 0;
 let report = null, copyTimer;
 let runConfig;
 let waitingSince = 0;
@@ -22,11 +22,12 @@ function result(direction, bps) {
   $(`${direction}-result`).hidden = false;
 }
 function drawScale() {
-  if (tickScale === gaugeScale) return;
-  tickScale = gaugeScale;
-  const top = format(gaugeScale);
-  for (let i = 1; i < 4; i++) $(`scale-${i}`).textContent = String(Number((Number(top.value) * i / 4).toPrecision(3)));
-  $('scale-label').textContent = top.value;
+  const unit = liveUnit ?? format(gaugeScale).index;
+  if (tickScale === gaugeScale && tickUnit === unit) return;
+  tickScale = gaugeScale; tickUnit = unit;
+  const top = gaugeScale / 1000 ** unit;
+  for (let i = 1; i < 4; i++) $(`scale-${i}`).textContent = String(Number((top * i / 4).toPrecision(3)));
+  $('scale-label').textContent = String(top);
 }
 function showLive(bps) {
   const value = format(bps, liveUnit); liveUnit = value.index;
@@ -135,6 +136,7 @@ function start() {
         $('progress').value = 1;
         liveSpeed.reset(); displaySpeed = liveSpeed.update(data.bps, 0);
         showLive(data.bps);
+        drawScale();
       } else if (data.type === 'complete') {
         showDetails(data);
         finish('', 'complete');

@@ -106,7 +106,7 @@ test('a frame timestamp before the phase reset does not stop either live gauge',
   const h = ui();
   h.click('go');
   const worker = h.workers[0];
-  for (const [phase, time, speed, scale] of [['download', 500, 845, '1'], ['upload', 1000, 922, '2']]) {
+  for (const [phase, time, speed, scale] of [['download', 500, 845, '1000'], ['upload', 1000, 922, '2000']]) {
     h.setNow(time);
     worker.emit({ type: 'phase', phase });
     h.draw(time - 1);
@@ -208,7 +208,7 @@ test('Copy Results copies final measurements and supports the plain-HTTP fallbac
 
 test('five gauge marks follow the existing scale and reset independently of measured results', () => {
   for (const [bps, marks] of [
-    [850, ['0.25', '0.5', '0.75', '1']],
+    [850, ['250', '500', '750', '1000']],
     [15e9, ['5', '10', '15', '20']],
     [125e9, ['50', '100', '150', '200']],
     [1.2e12, ['0.5', '1', '1.5', '2']]
@@ -224,4 +224,19 @@ test('five gauge marks follow the existing scale and reset independently of meas
     assert.equal(h.elements.get('scale-label').textContent, '1');
     assert.equal(h.elements.get('scale-1').textContent, '0.25');
   }
+});
+
+test('gauge marks follow live unit changes at a fixed gauge scale', () => {
+  const h = ui({ reducedMotion: true });
+  h.click('go');
+  const worker = h.workers[0];
+  worker.emit({ type: 'phase', phase: 'download' });
+  worker.emit({ type: 'sample', bps: 922e6, elapsed: .2, progress: .04 });
+  h.draw(200);
+  assert.equal(h.elements.get('live-unit').textContent, 'Mbps');
+  assert.equal(h.elements.get('scale-label').textContent, '2000');
+  worker.emit({ type: 'sample', bps: 1.2e9, elapsed: 1.2, progress: .24 });
+  h.draw(1200);
+  assert.equal(h.elements.get('live-unit').textContent, 'Gbps');
+  assert.equal(h.elements.get('scale-label').textContent, '2');
 });
