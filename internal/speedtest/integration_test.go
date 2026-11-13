@@ -106,7 +106,7 @@ func TestTransfers(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if r.Client != "127.0.0.1" || r.Server != "127.0.0.1" || r.Ping < 0 || r.Jitter < 0 {
+				if r.Client != "127.0.0.1" || r.Server != "127.0.0.1" || r.Ping <= 0 || r.Jitter < 0 {
 					t.Fatal(r)
 				}
 				for _, v := range []Transfer{r.Download, r.Upload} {

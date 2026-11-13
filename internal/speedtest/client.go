@@ -79,14 +79,14 @@ func (c *Client) Close() {
 func (c *Client) Ping(ctx context.Context) (Latency, error) {
 	samples := make([]float64, 0, 10)
 	for i := 0; i < 11; i++ {
-		start := time.Now()
+		start := pingNow()
 		r, err := c.request(ctx, "HEAD", "/api/ping", nil)
 		if err != nil {
 			return Latency{}, err
 		}
 		r.Body.Close()
 		if i > 0 {
-			samples = append(samples, float64(time.Since(start))/float64(time.Millisecond))
+			samples = append(samples, pingMillisecondsSince(start))
 		}
 	}
 	return SummarizeLatency(samples), nil

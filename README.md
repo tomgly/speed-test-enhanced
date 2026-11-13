@@ -53,6 +53,8 @@ Run the server on the machine to test against, then run a client:
 
 `--connections` sets the fixed count in Manual mode or the upper limit in Auto mode. UDP `--rate` is the aggregate target rate in bits per second.
 
+CLI ping and jitter use HTTP round trips before the transfer, including when TCP or UDP is selected. On Windows, the CLI uses a high-resolution monotonic clock to measure short LAN round trips.
+
 Progress goes to stderr. With `--json`, the final result is written to stdout. Ctrl+C cancels. Failed or cancelled tests exit nonzero. Use `speedtest COMMAND --help` for all options.
 
 ## Server configuration
