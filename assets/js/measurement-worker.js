@@ -179,6 +179,7 @@ onmessage = async ({ data }) => {
   usage = { download: { bytes: 0, duration: 0 }, upload: { bytes: 0, duration: 0 } };
   clients.clear(); servers.clear();
   const started = new Date().toISOString();
+  let outcome;
   try {
     const config = SpeedCore.settings(data.settings);
     const connection = await json('/api/connection', { timeout: 2000 });
@@ -199,7 +200,7 @@ onmessage = async ({ data }) => {
         const result = { config: { mode: config.mode, connections: config.connections, duration: config.duration, protocol: 'http', warmup: spec.warmup, rate: 1e9, packetSize: 1400 },
           ...latency, download, upload, started, client: [...clients].join(', '), server: [...servers].join(', ') };
         await json(`/api/results?id=${encodeURIComponent(session.id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(result) });
-        postMessage({ type: 'complete', usage, connection: { client: [...clients].join(', '), server: [...servers].join(', ') }, result });
+        outcome = { type: 'complete', usage, connection: { client: [...clients].join(', '), server: [...servers].join(', ') }, result };
         break;
       } catch (error) {
         if (cancelled || attempt || route.origin === route.fallback) throw error;
@@ -209,9 +210,11 @@ onmessage = async ({ data }) => {
         clients.clear(); servers.clear(); postMessage({ type: 'restart' });
       }
     }
-  } catch (error) { postMessage({ type: cancelled ? 'cancelled' : 'error', message: error.message }); }
+  } catch (error) { outcome = { type: 'error', message: error.message }; }
   finally {
-    abortAll(); running = false;
-    if (session) fetch(endpoint(`/api/session?id=${encodeURIComponent(session.id)}`), { method: 'DELETE', keepalive: true }).catch(() => {});
+    abortAll();
+    await deleteSession();
+    running = false;
+    postMessage(cancelled ? { type: 'cancelled', message: 'Cancelled' } : outcome);
   }
 };

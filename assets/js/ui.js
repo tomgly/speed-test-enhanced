@@ -9,6 +9,7 @@ let worker = null, busy = false, phase = '', displaySpeed = 0, animatedSpeed = 0
 const liveSpeed = new SpeedResults.LiveSpeed();
 let gaugeScale = 1e9, tickScale = 0, tickUnit, liveUnit, frame = 0, previousFrame = 0, lastText = 0;
 let report = null, copyTimer;
+let cancelTimer = null;
 let runConfig;
 let waitingSince = 0;
 function theme() {
@@ -65,6 +66,7 @@ function animate(time) {
   frame = requestAnimationFrame(animate);
 }
 function finish(message, state = 'interrupted') {
+  clearTimeout(cancelTimer); cancelTimer = null;
   busy = false; worker?.terminate(); worker = null;
   cancelAnimationFrame(frame); frame = 0;
   resetLive();
@@ -73,6 +75,7 @@ function finish(message, state = 'interrupted') {
   $('status').classList.remove('sr-only');
   document.body.dataset.state = state;
   $('instrument').hidden = true;
+  $('cancel').hidden = true;
   $('result-actions').hidden = false;
   $('copy').hidden = state !== 'complete';
   $('retry').focus();
@@ -104,6 +107,7 @@ function start() {
   document.body.dataset.state = 'running';
   $('instrument').hidden = false;
   $('go').hidden = true; $('live').hidden = false; $('retry').hidden = true;
+  $('cancel').hidden = false; $('cancel').disabled = false; $('cancel').textContent = 'Cancel';
   $('progress').hidden = false; $('progress').value = 0;
   $('settings-open').disabled = true; $('status').textContent = 'Connecting…';
   $('status').classList.add('sr-only');
@@ -112,9 +116,13 @@ function start() {
   busy = true; $('instrument').focus();
   try {
     worker = new Worker('assets/js/measurement-worker.js');
-    worker.onerror = () => finish('Measurement could not start. Check browser support and server access.');
+    worker.onerror = () => finish(cancelTimer !== null ? 'Test cancelled' : 'Measurement could not start. Check browser support and server access.');
     worker.onmessage = ({ data }) => {
       if (!busy) return;
+      if (cancelTimer !== null) {
+        if (['cancelled', 'complete', 'error'].includes(data.type)) finish('Test cancelled');
+        return;
+      }
       if (data.type === 'phase') {
         phase = data.phase; document.body.dataset.phase = phase; resetLive();
         $('progress').value = 0;
@@ -154,12 +162,16 @@ function start() {
   } catch { finish('This browser could not start the measurement worker.'); }
 }
 function cancel() {
-  if (!busy) return;
+  if (!busy || cancelTimer !== null) return;
+  $('cancel').disabled = true; $('cancel').textContent = 'Cancelling…';
+  $('status').textContent = 'Cancelling…';
+  cancelAnimationFrame(frame); frame = 0;
+  // Give the worker time to abort transfers and release its server session.
+  cancelTimer = setTimeout(() => finish('Test cancelled'), 3000);
   worker.postMessage({ type: 'cancel' });
-  // Terminating also closes networking if the worker is stalled.
-  finish('Test cancelled');
 }
 $('go').addEventListener('click', start); $('retry').addEventListener('click', start);
+$('cancel').addEventListener('click', cancel);
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && busy) cancel(); });
 const form = $('settings-form');
 function modeLabel() { $('connections-label').textContent = form.elements.mode.value === 'auto' ? 'Maximum parallel requests' : 'Parallel requests'; }

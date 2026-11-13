@@ -38,7 +38,7 @@ Run `speedtest --version` to check the installed version.
 .\speedtest.exe server
 ```
 
-Open [http://localhost:3000](http://localhost:3000), choose Auto or Manual, and select **GO**. Settings are saved locally. Press Escape to cancel, **Test Again** to retry, or **Copy Results** to copy the result.
+Open [http://localhost:3000](http://localhost:3000), choose Auto or Manual, and select **GO**. Settings are saved locally. Select **Cancel** or press Escape to stop a running test. Select **Test Again** to retry or **Copy Results** to copy the result.
 
 ## CLI
 

@@ -6,6 +6,7 @@ function ui({ clipboard = true, writeText, stored = null, reducedMotion = false 
   const elements = new Map(), workers = [], copied = [];
   const documentHandlers = {};
   const frames = new Map(); let frameID = 0, now = 0;
+  const timers = new Map(); let timerID = 0;
   const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
   function element(id, hidden = false) {
     const classes = new Set();
@@ -27,13 +28,15 @@ function ui({ clipboard = true, writeText, stored = null, reducedMotion = false 
     Worker, performance: { now: () => now },
     localStorage: { getItem: () => stored, setItem: (key, value) => { stored = value; } }, matchMedia: query => ({ matches: query.includes('reduced-motion') && reducedMotion, addEventListener() {} }),
     FormData: class { constructor(form) { this.values = Object.entries(form.elements).map(([key, element]) => [key, element.value]); } [Symbol.iterator]() { return this.values[Symbol.iterator](); } },
-    requestAnimationFrame: callback => { frames.set(++frameID, callback); return frameID; }, cancelAnimationFrame: id => frames.delete(id), setTimeout: () => 1, clearTimeout() {},
+    requestAnimationFrame: callback => { frames.set(++frameID, callback); return frameID; }, cancelAnimationFrame: id => frames.delete(id),
+    setTimeout: callback => { timers.set(++timerID, callback); return timerID; }, clearTimeout: id => timers.delete(id),
     navigator: { clipboard: clipboard ? { writeText: writeText ?? (async text => copied.push(text)) } : undefined },
     document: { getElementById: id => elements.get(id), documentElement: { dataset: {} }, body: { dataset: {}, append() {} },
       createElement: () => element('temporary'), addEventListener: (type, handler) => { documentHandlers[type] = handler; }, execCommand: command => { copied.push(command); return true; } } });
   vm.runInContext(fs.readFileSync(require.resolve('../assets/js/ui.js'), 'utf8'), sandbox);
   return { elements, workers, copied, click: id => elements.get(id).handlers.click(), escape: () => documentHandlers.keydown({ key: 'Escape' }), saved: () => stored,
     pendingFrames: () => frames.size, setNow: time => { now = time; },
+    expireTimers: () => { const pending = [...timers.values()]; timers.clear(); for (const callback of pending) callback(); },
     draw: time => { const pending = [...frames.values()]; frames.clear(); for (const callback of pending) callback(time); } };
 }
 const complete = { type: 'complete', usage: { download: { bytes: 2e9, duration: 13.2 }, upload: { bytes: 1e9, duration: 13.1 } }, connection: { client: '2001:db8::1234', server: '2001:db8::1' } };
@@ -61,7 +64,7 @@ test('waiting dots cycle in the existing frame loop and stop on speed, errors or
     assert.equal(value.textContent, '0'); assert.equal(value.classList.contains('waiting'), false);
     worker.emit({ type: 'phase', phase: 'upload' });
     assert.equal(value.textContent, '\u00a0');
-    if (end === 'escape') h.escape();
+    if (end === 'escape') { h.escape(); worker.emit({ type: 'cancelled' }); }
     else if (end === 'worker-error') worker.onerror();
     else worker.emit({ type: end, message: 'Server unavailable' });
     assert.equal(h.pendingFrames(), 0); assert.equal(worker.terminated, true);
@@ -70,6 +73,31 @@ test('waiting dots cycle in the existing frame loop and stop on speed, errors or
     worker.emit({ type: 'phase', phase: 'download' }); h.draw(1800);
     assert.equal(value.textContent, '—'); assert.equal(h.pendingFrames(), 0);
     h.click('retry'); assert.equal(value.textContent, '\u00a0'); assert.equal(h.pendingFrames(), 1);
+  }
+});
+
+test('Cancel waits for cleanup or stops an unresponsive Worker', () => {
+  for (const outcome of ['cancelled', 'complete', 'timeout']) {
+    const h = ui(), button = h.elements.get('cancel');
+    assert.equal(button.hidden, true);
+    h.click('go');
+    const worker = h.workers[0];
+    assert.equal(button.hidden, false);
+    h.click('cancel');
+    assert.equal(button.disabled, true);
+    assert.equal(worker.request.type, 'cancel');
+    assert.equal(worker.terminated, undefined);
+    assert.equal(h.pendingFrames(), 0);
+    if (outcome === 'timeout') h.expireTimers();
+    else worker.emit({ type: outcome });
+    assert.equal(worker.terminated, true);
+    assert.equal(button.hidden, true);
+    assert.equal(h.elements.get('status').textContent, 'Test cancelled');
+    assert.equal(h.elements.get('copy').hidden, true);
+    h.click('retry');
+    h.expireTimers();
+    assert.equal(h.workers[1].terminated, undefined);
+    assert.equal(button.disabled, false);
   }
 });
 
@@ -153,8 +181,9 @@ test('measurement shows only the shared instrument and progress; details appear 
   assert.equal(h.elements.get('download-duration').textContent, '13 s');
   assert.equal(h.elements.get('client-ip').textContent, '2001:db8::1234');
   h.click('retry'); assert.equal(h.elements.get('results').hidden, true);
-  assert.equal(h.elements.has('cancel'), false);
-  h.escape(); assert.equal(h.elements.get('results').hidden, true); assert.equal(h.elements.get('copy').hidden, true);
+  assert.equal(h.elements.get('cancel').hidden, false);
+  h.escape(); h.workers[1].emit({ type: 'cancelled' });
+  assert.equal(h.elements.get('results').hidden, true); assert.equal(h.elements.get('copy').hidden, true);
 });
 
 test('only live text and gauge are smoothed; final results stay independent', async () => {
