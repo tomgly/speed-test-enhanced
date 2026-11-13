@@ -54,7 +54,7 @@ async function harness() {
   }
   const context = vm.createContext({ SpeedCore: require('../assets/js/measurement-core.js'), SpeedConnection: require('../assets/js/connection.js'),
     importScripts() {}, onmessage: null, postMessage: data => messages.push(structuredClone(data)),
-    performance, crypto: webcrypto, Blob, Uint8Array, AbortController, XMLHttpRequest: XHR,
+    performance, crypto: webcrypto, Blob, Uint8Array, TextEncoder, AbortController, XMLHttpRequest: XHR,
     fetch: network, setTimeout, clearTimeout, setInterval, clearInterval, console });
   vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../assets/js/measurement-worker.js'), 'utf8'), context);
   vm.runInContext(`session = ${JSON.stringify(session)}; spec = ${JSON.stringify(spec)}; route = {origin:${JSON.stringify(base)}};
@@ -89,6 +89,33 @@ test('Worker rejects bad receipts, compressed/early responses and cancellation w
       assert.ok(!h.messages.some(m => m.type === 'complete' || m.type === 'result'));
     } finally { await h.stop(); }
   }
+});
+
+test('Worker rejects delayed early EOF and excludes a split completion marker from payload', async () => {
+  const h = await harness();
+  try {
+    let time = 0;
+    h.context.performance = { now: () => time };
+    const headers = { 'X-Speedtest-Download': 'framed-v1' };
+    h.context.fetch = async () => {
+      time += 150;
+      return new Response(new Uint8Array(7), { headers });
+    };
+    await assert.rejects(vm.runInContext("windowTransfer('download', 1, .1)", h.context), /completion marker/);
+    const encoder = new TextEncoder();
+    h.context.fetch = async () => {
+      time += 150;
+      return new Response(new ReadableStream({
+        start(controller) {
+          for (const chunk of ['pay', 'loadspeedtest-', 'end-', 'v1']) controller.enqueue(encoder.encode(chunk));
+          controller.close();
+        }
+      }), { headers });
+    };
+    const result = await vm.runInContext("windowTransfer('download', 1, .1)", h.context);
+    assert.equal(result.bytes, 7);
+    assert.equal(vm.runInContext('usage.download.bytes', h.context), 7);
+  } finally { await h.stop(); }
 });
 test('Auto ignores isolated spikes and dips and considers intermediate parallelism', async () => {
   const h = await harness();

@@ -78,6 +78,8 @@ Flags override environment variables:
 
 HTTPS pages require HTTPS measurement origins. For HTTP measurement endpoints, configure reverse proxies without compression, buffering, caching, or request-size restrictions. Native TCP/UDP connections are direct and unencrypted. Bind them to the intended measurement interface.
 
+HTTP clients verify a completion marker from the measurement server before accepting a download. Update the server and any separate IPv4 or IPv6 measurement origins to a version that supports the marker when upgrading the HTTP client.
+
 ## Linux (systemd)
 
 For persistent Linux deployments, a systemd service file is provided in [`systemd/speedtest.service`](systemd/speedtest.service).

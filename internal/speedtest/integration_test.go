@@ -207,8 +207,11 @@ func TestEarlyEOFRejected(t *testing.T) {
 func TestOneEarlyDownloadStreamRejected(t *testing.T) {
 	var requests atomic.Int32
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Speedtest-Download", "framed-v1")
 		if requests.Add(1) > 1 {
 			time.Sleep(150 * time.Millisecond)
+			w.Write([]byte("payload" + downloadEnd))
+			return
 		}
 		w.Write([]byte("payload"))
 	}))
@@ -222,12 +225,41 @@ func TestOneEarlyDownloadStreamRejected(t *testing.T) {
 	}
 }
 
+func TestDelayedHTTPDownloadRequiresCompletionMarker(t *testing.T) {
+	for _, completed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("completed=%t", completed), func(t *testing.T) {
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				time.Sleep(150 * time.Millisecond)
+				w.Header().Set("X-Speedtest-Download", "framed-v1")
+				io.WriteString(w, "payload")
+				if completed {
+					io.WriteString(w, downloadEnd)
+				}
+			}))
+			defer s.Close()
+			c := NewClient(s.URL)
+			defer c.Close()
+			cfg := DefaultConfig()
+			cfg.Protocol = "http"
+			result, err := c.Window(context.Background(), cfg, "download", 1, 100*time.Millisecond, nil)
+			if completed {
+				if err != nil || result.Bytes != 7 {
+					t.Fatal(result, err)
+				}
+			} else if err == nil {
+				t.Fatal("delayed early EOF accepted")
+			}
+		})
+	}
+}
+
 func TestProgressDelayExcludedFromMeasurement(t *testing.T) {
 	callback := make(chan struct{})
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Speedtest-Download", "framed-v1")
 		<-callback
 		time.Sleep(100 * time.Millisecond)
-		w.Write([]byte("payload"))
+		io.WriteString(w, "payload"+downloadEnd)
 	}))
 	defer s.Close()
 	c := NewClient(s.URL)

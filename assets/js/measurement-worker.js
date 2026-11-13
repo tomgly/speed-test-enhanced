@@ -3,6 +3,7 @@ importScripts('measurement-core.js', 'connection.js');
 
 let running = false, cancelled = false, route, session, spec, usage, transport;
 const active = new Set(), clients = new Set(), servers = new Set();
+const downloadEnd = new TextEncoder().encode('speedtest-end-v1');
 const now = () => performance.now();
 const check = () => { if (cancelled) throw new Error('Cancelled'); };
 const endpoint = path => `${route?.origin || ''}${path}`;
@@ -78,17 +79,26 @@ async function windowTransfer(direction, count, seconds, body, live = false) {
   }, 200) : null;
   async function stream() {
     if (direction === 'download') {
-      const streamStart = now();
-      const r = await request(`${path}&seconds=${seconds}`, { timeout: seconds * 1000 + 5000 });
+      const r = await request(`${path}&framing=1&seconds=${seconds}`, { timeout: seconds * 1000 + 5000 });
       try {
         if (r.response.headers.get('Content-Encoding')) throw new Error('Compressed measurement response');
         addresses(r.response);
+        if (r.response.headers.get('X-Speedtest-Download') !== 'framed-v1') throw new Error('Server does not support confirmed HTTP downloads');
         const reader = r.response.body.getReader();
+        // Hold the suffix back from both live and final payload counts.
+        const tail = new Uint8Array(downloadEnd.length);
+        let received = 0;
         try { while (true) {
           const { done, value } = await reader.read(); if (done) break;
-          check(); bytes += value.byteLength; usage.download.bytes += value.byteLength;
+          check();
+          const size = value.byteLength;
+          if (size < tail.length) tail.copyWithin(0, size);
+          tail.set(value.subarray(Math.max(0, size - tail.length)), Math.max(0, tail.length - size));
+          const confirmed = Math.max(0, size - Math.max(0, tail.length - received));
+          received += size;
+          bytes += confirmed; usage.download.bytes += confirmed;
         } } finally { reader.releaseLock(); }
-        if (now() - streamStart < seconds * 1000) throw new Error('Download stream ended before the measurement deadline');
+        if (received < tail.length || !tail.every((value, i) => value === downloadEnd[i])) throw new Error('Missing HTTP download completion marker');
       } finally { r.release(); }
     } else while (now() < end) {
       check();

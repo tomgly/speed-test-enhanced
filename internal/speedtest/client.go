@@ -328,8 +328,7 @@ func (w uploadWriter) Write(b []byte) (int, error) {
 func (c *Client) httpStream(ctx context.Context, h handshake, confirmed *atomic.Uint64, start time.Time, buffer []byte) error {
 	base := "?id=" + url.QueryEscape(h.ID)
 	if h.Direction == "download" {
-		streamStart := time.Now()
-		r, err := c.request(ctx, "GET", "/api/download"+base+"&seconds="+strconv.FormatFloat(h.Seconds, 'f', 6, 64), nil)
+		r, err := c.request(ctx, "GET", "/api/download"+base+"&framing=1&seconds="+strconv.FormatFloat(h.Seconds, 'f', 6, 64), nil)
 		if err != nil {
 			return err
 		}
@@ -337,12 +336,26 @@ func (c *Client) httpStream(ctx context.Context, h handshake, confirmed *atomic.
 		if r.Header.Get("Content-Encoding") != "" {
 			return errors.New("compressed measurement response")
 		}
+		if r.Header.Get("X-Speedtest-Download") != "framed-v1" {
+			return errors.New("server does not support confirmed HTTP downloads")
+		}
+		// Retain only the final marker-sized suffix outside the payload count.
+		var tail [len(downloadEnd)]byte
+		if _, err := io.ReadFull(r.Body, tail[:]); err != nil {
+			return fmt.Errorf("incomplete HTTP download: %w", err)
+		}
 		for {
 			n, err := r.Body.Read(buffer)
+			if n >= len(tail) {
+				copy(tail[:], buffer[n-len(tail):n])
+			} else if n > 0 {
+				copy(tail[:], tail[n:])
+				copy(tail[len(tail)-n:], buffer[:n])
+			}
 			confirmed.Add(uint64(n))
 			if err == io.EOF {
-				if time.Since(streamStart) < seconds(h.Seconds) {
-					return errors.New("download stream ended before the measurement deadline")
+				if string(tail[:]) != downloadEnd {
+					return errors.New("missing HTTP download completion marker")
 				}
 				return nil
 			}

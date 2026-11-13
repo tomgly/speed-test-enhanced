@@ -21,6 +21,9 @@ type ServerConfig struct {
 	HTTPAddress, TCPAddress, UDPAddress string
 	IPv6Origin, IPv4Origin, CORSOrigin  string
 }
+
+const downloadEnd = "speedtest-end-v1"
+
 type session struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -195,7 +198,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", s.config.CORSOrigin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Expose-Headers", "X-Speedtest-Client, X-Speedtest-Server, X-Received-Bytes")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Speedtest-Client, X-Speedtest-Server, X-Received-Bytes, X-Speedtest-Download")
 	}
 	if r.Method == "OPTIONS" {
 		w.WriteHeader(204)
@@ -324,6 +327,10 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			w.Header().Set("Content-Type", "application/octet-stream")
+			framed := r.URL.Query().Get("framing") == "1"
+			if framed {
+				w.Header().Set("X-Speedtest-Download", "framed-v1")
+			}
 			end := time.Now().Add(seconds(duration))
 			for time.Now().Before(end) && ctx.Err() == nil && r.Context().Err() == nil {
 				n, err := w.Write(s.payload)
@@ -331,6 +338,9 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					return
 				}
+			}
+			if framed && ctx.Err() == nil && r.Context().Err() == nil {
+				io.WriteString(w, downloadEnd)
 			}
 		} else {
 			if r.ContentLength > 32*1024*1024 {
