@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-function ui({ clipboard = true, stored = null, reducedMotion = false } = {}) {
+function ui({ clipboard = true, writeText, stored = null, reducedMotion = false } = {}) {
   const elements = new Map(), workers = [], copied = [];
   const documentHandlers = {};
   const frames = new Map(); let frameID = 0, now = 0;
@@ -28,7 +28,7 @@ function ui({ clipboard = true, stored = null, reducedMotion = false } = {}) {
     localStorage: { getItem: () => stored, setItem: (key, value) => { stored = value; } }, matchMedia: query => ({ matches: query.includes('reduced-motion') && reducedMotion, addEventListener() {} }),
     FormData: class { constructor(form) { this.values = Object.entries(form.elements).map(([key, element]) => [key, element.value]); } [Symbol.iterator]() { return this.values[Symbol.iterator](); } },
     requestAnimationFrame: callback => { frames.set(++frameID, callback); return frameID; }, cancelAnimationFrame: id => frames.delete(id), setTimeout: () => 1, clearTimeout() {},
-    navigator: { clipboard: clipboard ? { writeText: async text => copied.push(text) } : undefined },
+    navigator: { clipboard: clipboard ? { writeText: writeText ?? (async text => copied.push(text)) } : undefined },
     document: { getElementById: id => elements.get(id), documentElement: { dataset: {} }, body: { dataset: {}, append() {} },
       createElement: () => element('temporary'), addEventListener: (type, handler) => { documentHandlers[type] = handler; }, execCommand: command => { copied.push(command); return true; } } });
   vm.runInContext(fs.readFileSync(require.resolve('../assets/js/ui.js'), 'utf8'), sandbox);
@@ -205,6 +205,23 @@ test('Copy Results copies final measurements and supports the plain-HTTP fallbac
   }
 });
 
+test('clipboard completion from a previous run cannot change the new results UI', async () => {
+  for (const success of [true, false]) {
+    let resolveCopy, rejectCopy;
+    const h = ui({ writeText: () => new Promise((resolve, reject) => {
+      resolveCopy = resolve; rejectCopy = reject;
+    }) });
+    h.click('go');
+    h.workers[0].emit(complete);
+    const copying = h.click('copy');
+    h.click('retry');
+    h.workers[1].emit(complete);
+    if (success) resolveCopy(); else rejectCopy(new Error('Clipboard unavailable'));
+    await copying;
+    assert.equal(h.elements.get('copy').textContent, 'Copy Results');
+    assert.equal(h.elements.get('status').textContent, '');
+  }
+});
 
 test('five gauge marks follow the existing scale and reset independently of measured results', () => {
   for (const [bps, marks] of [

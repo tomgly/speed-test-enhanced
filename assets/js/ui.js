@@ -177,7 +177,8 @@ form.addEventListener('submit', event => {
 
 $('copy').addEventListener('click', async () => {
   if (!report?.usage || busy) return;
-  const text = SpeedResults.text(report);
+  const copiedReport = report;
+  const text = SpeedResults.text(copiedReport);
   try {
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
     else {
@@ -187,8 +188,11 @@ $('copy').addEventListener('click', async () => {
       try { if (!document.execCommand('copy')) throw new Error('Copy unavailable'); }
       finally { field.remove(); $('copy').focus(); }
     }
+    if (report !== copiedReport) return;
     $('copy').textContent = 'Copied';
     clearTimeout(copyTimer); copyTimer = setTimeout(() => { $('copy').textContent = 'Copy Results'; }, 1500);
-  } catch { $('status').textContent = 'Could not copy results. Check browser clipboard permissions.'; }
+  } catch {
+    if (report === copiedReport) $('status').textContent = 'Could not copy results. Check browser clipboard permissions.';
+  }
 });
 theme();
