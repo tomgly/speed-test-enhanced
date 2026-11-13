@@ -29,6 +29,17 @@ async function json(path, options, origin) {
   try { return await r.response.json(); } finally { r.release(); }
 }
 function abortAll() { for (const abort of active) abort(); }
+async function deleteSession() {
+  if (!session) return;
+  const path = endpoint(`/api/session?id=${encodeURIComponent(session.id)}`);
+  session = null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2000);
+  try {
+    await fetch(path, { method: 'DELETE', signal: controller.signal });
+  } catch { /* The server expires sessions that could not be deleted. */ }
+  finally { clearTimeout(timer); }
+}
 function payload() {
   const data = new Uint8Array(8 * 1024 * 1024);
   for (let i = 0; i < data.length; i += 65536) crypto.getRandomValues(data.subarray(i, i + 65536));
@@ -192,8 +203,9 @@ onmessage = async ({ data }) => {
         break;
       } catch (error) {
         if (cancelled || attempt || route.origin === route.fallback) throw error;
-        if (session) await fetch(endpoint(`/api/session?id=${encodeURIComponent(session.id)}`), { method: 'DELETE' }).catch(() => {});
-        session = null; route = { origin: route.fallback, fallback: route.fallback, family: route.fallbackFamily };
+        await deleteSession();
+        check();
+        route = { origin: route.fallback, fallback: route.fallback, family: route.fallbackFamily };
         clients.clear(); servers.clear(); postMessage({ type: 'restart' });
       }
     }

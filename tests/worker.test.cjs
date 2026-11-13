@@ -117,6 +117,43 @@ test('Worker rejects delayed early EOF and excludes a split completion marker fr
     assert.equal(vm.runInContext('usage.download.bytes', h.context), 7);
   } finally { await h.stop(); }
 });
+test('IPv4 fallback continues when deleting the IPv6 session times out', async () => {
+  const h = await harness();
+  try {
+    await vm.runInContext(`
+      const preferred = 'https://v6.test', fallback = 'https://v4.test';
+      SpeedConnection = { select: async () => ({ origin: preferred, fallback, fallbackFamily: 4 }) };
+      payload = () => null;
+      json = async path => path === '/api/spec'
+        ? { probeSeconds: .4, probeSamples: 3, factor: 2, gain: 1.08, warmup: 1, pingSamples: 10 }
+        : { id: 'test' };
+      ping = async () => ({ ping: 1, jitter: 0 });
+      measure = async direction => {
+        usage[direction].bytes += 7;
+        if (route.origin === preferred && direction === 'upload') throw new Error('IPv6 failed');
+        return { bytes: 7 };
+      };
+      const schedule = setTimeout;
+      setTimeout = callback => schedule(callback, 0);
+      fetch = async (url, { method, signal }) => {
+        postMessage({ type: 'delete', url, method });
+        if (!url.startsWith(preferred)) return;
+        if (!signal) throw new Error('Missing cleanup signal');
+        await new Promise((resolve, reject) => signal.addEventListener('abort', () => {
+          postMessage({ type: 'delete-aborted' }); reject(signal.reason);
+        }, { once: true }));
+      };
+      onmessage({ data: { type: 'start', settings: {} } });
+    `, h.context);
+    const types = h.messages.map(message => message.type);
+    assert.ok(types.includes('delete-aborted'));
+    assert.ok(types.indexOf('delete-aborted') < types.indexOf('restart'));
+    const complete = h.messages.find(message => message.type === 'complete');
+    assert.equal(complete.result.download.bytes, 7);
+    assert.equal(complete.usage.download.bytes, 14);
+  } finally { await h.stop(); }
+});
+
 test('Auto ignores isolated spikes and dips and considers intermediate parallelism', async () => {
   const h = await harness();
   try {
