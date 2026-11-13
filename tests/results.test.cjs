@@ -15,6 +15,7 @@ test('copied results include independent directions, exact total bytes and measu
   const before = JSON.stringify(report), copied = text(report);
   for (const expected of ['Download: 125 Gbps', 'Upload: 1.2 Tbps', '1000000000 bytes', 'Download Duration: 13 s',
     'Upload Duration: 14 s', 'Ping: 1.2 ms', 'Jitter: 0.4 ms', 'Client IP: 2001:db8::20', 'Server IP: 2001:db8::1']) assert.ok(copied.includes(expected), expected);
+  assert.doesNotMatch(copied, /Data is observed test payload|Durations include calibration and warm-up/);
   assert.equal(JSON.stringify(report), before);
   report.connection = {}; assert.ok(text(report).includes('Client IP: Unavailable'));
 });

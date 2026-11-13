@@ -29,7 +29,6 @@
       `Download Duration: ${duration(result.usage.download.duration)}`, `Upload Duration: ${duration(result.usage.upload.duration)}`,
       `Ping: ${result.ping} ms`, `Jitter: ${result.jitter} ms`,
       `Client IP: ${result.connection.client || 'Unavailable'}`, `Server IP: ${result.connection.server || 'Unavailable'}`,
-      'Data is observed test payload; control traffic, unconfirmed data and protocol overhead are excluded. Durations include calibration and warm-up.',
     ].join('\n');
   }
   const api = { data, duration, text, LiveSpeed };
