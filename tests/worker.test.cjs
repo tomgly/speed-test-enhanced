@@ -169,6 +169,7 @@ for (const mode of ['manual', 'auto']) test(`production ${mode} start completes,
       if (mode === 'manual') assert.equal(r.connections, 2);
       const samples = h.messages.filter(m => m.type === 'sample' && m.phase === direction);
       assert.ok(samples.length > 0); assert.ok(samples.every(m => m.connections === r.connections));
+      assert.ok(samples.some(m => Number.isFinite(m.bps) && m.bps > 0 && m.elapsed > 0 && m.progress > 0));
       assert.ok(complete.usage[direction].bytes > r.bytes);
       assert.ok(complete.usage[direction].duration > r.seconds);
     }

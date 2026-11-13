@@ -45,7 +45,9 @@ function animate(time) {
   if (!busy) { frame = 0; return; }
   if (liveSpeed.value === null) {
     // A non-breaking space preserves the text baseline during the empty step.
-    $('live-value').textContent = '.'.repeat(Math.floor((time - waitingSince) / 400) % 4) || '\u00a0';
+    // The frame timestamp can precede a phase reset in the same frame.
+    const waitingElapsed = Math.max(0, time - waitingSince);
+    $('live-value').textContent = '.'.repeat(Math.floor(waitingElapsed / 400) % 4) || '\u00a0';
     frame = requestAnimationFrame(animate); return;
   }
   const dt = Math.min(100, time - (previousFrame || time)); previousFrame = time;

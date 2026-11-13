@@ -5,7 +5,7 @@ const fs = require('node:fs');
 function ui({ clipboard = true, stored = null, reducedMotion = false } = {}) {
   const elements = new Map(), workers = [], copied = [];
   const documentHandlers = {};
-  const frames = new Map(); let frameID = 0;
+  const frames = new Map(); let frameID = 0, now = 0;
   const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
   function element(id, hidden = false) {
     const classes = new Set();
@@ -24,7 +24,7 @@ function ui({ clipboard = true, stored = null, reducedMotion = false } = {}) {
     emit(data) { this.onmessage({ data }); }
   }
   const sandbox = vm.createContext({ SpeedCore: require('../assets/js/measurement-core.js'), SpeedResults: require('../assets/js/results.js'),
-    Worker, performance: { now: () => 0 },
+    Worker, performance: { now: () => now },
     localStorage: { getItem: () => stored, setItem: (key, value) => { stored = value; } }, matchMedia: query => ({ matches: query.includes('reduced-motion') && reducedMotion, addEventListener() {} }),
     FormData: class { constructor(form) { this.values = Object.entries(form.elements).map(([key, element]) => [key, element.value]); } [Symbol.iterator]() { return this.values[Symbol.iterator](); } },
     requestAnimationFrame: callback => { frames.set(++frameID, callback); return frameID; }, cancelAnimationFrame: id => frames.delete(id), setTimeout: () => 1, clearTimeout() {},
@@ -33,7 +33,7 @@ function ui({ clipboard = true, stored = null, reducedMotion = false } = {}) {
       createElement: () => element('temporary'), addEventListener: (type, handler) => { documentHandlers[type] = handler; }, execCommand: command => { copied.push(command); return true; } } });
   vm.runInContext(fs.readFileSync(require.resolve('../assets/js/ui.js'), 'utf8'), sandbox);
   return { elements, workers, copied, click: id => elements.get(id).handlers.click(), escape: () => documentHandlers.keydown({ key: 'Escape' }), saved: () => stored,
-    pendingFrames: () => frames.size,
+    pendingFrames: () => frames.size, setNow: time => { now = time; },
     draw: time => { const pending = [...frames.values()]; frames.clear(); for (const callback of pending) callback(time); } };
 }
 const complete = { type: 'complete', usage: { download: { bytes: 2e9, duration: 13.2 }, upload: { bytes: 1e9, duration: 13.1 } }, connection: { client: '2001:db8::1234', server: '2001:db8::1' } };
@@ -99,6 +99,30 @@ test('Auto and Manual share one progress bar that resets and completes each dire
     assert.equal(h.pendingFrames(), 0); assert.equal(progress.hidden, true);
     assert.equal(h.elements.get('download-value').textContent, '2');
     assert.equal(h.elements.get('upload-value').textContent, '3');
+  }
+});
+
+test('a frame timestamp before the phase reset does not stop either live gauge', () => {
+  const h = ui();
+  h.click('go');
+  const worker = h.workers[0];
+  for (const [phase, time, speed, scale] of [['download', 500, 845, '1'], ['upload', 1000, 922, '2']]) {
+    h.setNow(time);
+    worker.emit({ type: 'phase', phase });
+    h.draw(time - 1);
+    assert.equal(h.elements.get('live-value').textContent, '\u00a0');
+    assert.equal(h.pendingFrames(), 1);
+
+    worker.emit({ type: 'sample', phase, bps: speed * 1e6, elapsed: .2, progress: .04 });
+    h.draw(time + 200);
+    h.draw(time + 216);
+    assert.equal(h.elements.get('progress').value, .04);
+    assert.equal(h.elements.get('live-value').textContent, String(speed));
+    assert.equal(h.elements.get('live-unit').textContent, 'Mbps');
+    assert.equal(h.elements.get('scale-label').textContent, scale);
+    assert.equal(h.elements.get('scale-1').textContent, String(Number(scale) / 4));
+    assert.notEqual(h.elements.get('gauge-needle').style.transform, 'rotate(-120deg)');
+    assert.ok(Number(h.elements.get('gauge-fill').style.strokeDashoffset) < 100);
   }
 });
 test('measurement shows only the shared instrument and progress; details appear on completion', () => {
