@@ -7,12 +7,12 @@
   "StringFileInfo": {
     "CompanyName": "tomgly",
     "FileDescription": "Self-hosted network speed test with a web UI and Go CLI",
-    "FileVersion": "0.1.0",
+    "FileVersion": "0.1.1",
     "InternalName": "speedtest",
     "LegalCopyright": "Copyright © 2026 tomgly. Licensed under MIT.",
     "OriginalFilename": "speedtest.exe",
     "ProductName": "Speed Test Enhanced",
-    "ProductVersion": "0.1.0"
+    "ProductVersion": "0.1.1"
   },
   "IconPath": "../../assets/icons/app.ico",
   "VarFileInfo": {
