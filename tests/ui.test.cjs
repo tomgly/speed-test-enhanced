@@ -191,15 +191,15 @@ test('only live text and gauge are smoothed; final results stay independent', as
     const h = ui({ reducedMotion }); h.click('go'); const worker = h.workers[0];
     worker.emit({ type: 'phase', phase: 'download' }); h.draw(100);
     assert.equal(h.elements.get('live-value').textContent, '\u00a0');
-    worker.emit({ type: 'sample', phase: 'download', bps: 10e9, elapsed: .2, phaseElapsed: 1.2, progress: .1 }); h.draw(200);
+    worker.emit({ type: 'sample', phase: 'download', bps: 10e9, elapsed: .2, progress: .1 }); h.draw(200);
     assert.equal(h.elements.get('live-value').textContent, '10');
-    worker.emit({ type: 'sample', phase: 'download', bps: 7e9, elapsed: .4, phaseElapsed: 1.4, progress: .2 }); h.draw(300);
+    worker.emit({ type: 'sample', phase: 'download', bps: 7e9, elapsed: .4, progress: .2 }); h.draw(300);
     assert.equal(h.elements.get('live-value').textContent, '9.15');
     worker.emit({ type: 'result', phase: 'download', bps: 8.31e9 });
     assert.equal(h.elements.get('download-value').textContent, '8.31');
     worker.emit({ type: 'phase', phase: 'upload' }); h.draw(400);
     assert.equal(h.elements.get('live-value').textContent, '.');
-    worker.emit({ type: 'sample', phase: 'upload', bps: 850, elapsed: .2, phaseElapsed: 1.2, progress: .1 }); h.draw(500);
+    worker.emit({ type: 'sample', phase: 'upload', bps: 850, elapsed: .2, progress: .1 }); h.draw(500);
     assert.equal(h.elements.get('live-value').textContent, '850');
     worker.emit({ type: 'result', phase: 'upload', bps: 900 }); worker.emit(complete);
     assert.equal(h.elements.get('live-value').textContent, '—');
@@ -217,7 +217,7 @@ test('duration persists and each run retains its starting setting', () => {
   assert.equal(worker.request.settings.duration, 20);
   form.elements.duration.value = '5'; form.handlers.submit({ preventDefault() {} });
   worker.emit({ type: 'phase', phase: 'download' });
-  worker.emit({ type: 'sample', phase: 'download', bps: 1e9, phaseElapsed: 1.2, progress: .1 });
+  worker.emit({ type: 'sample', phase: 'download', bps: 1e9, elapsed: 1.2, progress: .1 });
   assert.equal(worker.request.settings.duration, 20);
   const next = ui({ stored: h.saved() }); next.click('go');
   assert.equal(next.workers[0].request.settings.duration, 5);

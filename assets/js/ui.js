@@ -10,7 +10,6 @@ const liveSpeed = new SpeedResults.LiveSpeed();
 let gaugeScale = 1e9, tickScale = 0, tickUnit, liveUnit, frame = 0, previousFrame = 0, lastText = 0;
 let report = null, copyTimer;
 let cancelTimer = null;
-let runConfig;
 let waitingSince = 0;
 function theme() {
   document.documentElement.dataset.theme = config.theme === 'auto' ? (systemTheme.matches ? 'dark' : 'light') : config.theme;
@@ -102,7 +101,7 @@ function showDetails(data) {
 function start() {
   if (busy) return;
   resetResults();
-  runConfig = { ...config };
+  const runConfig = { ...config };
   resetLive(true);
   document.body.dataset.state = 'running';
   $('instrument').hidden = false;
@@ -148,13 +147,11 @@ function start() {
       } else if (data.type === 'complete') {
         showDetails(data);
         finish('', 'complete');
-      }
-      else if (data.type === 'restart') {
+      } else if (data.type === 'restart') {
         resetResults(); resetLive(); $('progress').value = 0;
         phase = ''; document.body.dataset.phase = '';
         $('phase-label').textContent = 'Connecting'; $('status').textContent = 'Connecting…';
-      }
-      else if (data.type === 'error') finish(data.message);
+      } else if (data.type === 'error') finish(data.message);
       else if (data.type === 'cancelled') finish('Test cancelled');
     };
     worker.postMessage({ type: 'start', settings: runConfig });
