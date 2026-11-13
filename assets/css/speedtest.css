@@ -112,8 +112,9 @@ main {
 .dial { width: 100%; aspect-ratio: 420 / 360; position: relative; }
 .gauge { width: 100%; height: 100%; display: block; }
 .gauge path { fill: none; stroke-width: 4; stroke-linecap: round; }
+.gauge .track, #gauge-fill { stroke-width: 7; }
 .track { stroke: var(--line); }
-#gauge-fill { stroke: var(--download); stroke-width: 3; stroke-dasharray: 100; stroke-dashoffset: 100; }
+#gauge-fill { stroke: var(--download); stroke-dasharray: 100; stroke-dashoffset: 100; }
 #gauge-needle { transform-origin: 210px 210px; transform: rotate(-120deg); }
 #gauge-needle path { stroke: var(--download); }
 #gauge-needle circle { fill: var(--muted); }
