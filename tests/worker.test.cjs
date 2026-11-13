@@ -97,6 +97,13 @@ test('Worker rejects delayed early EOF and excludes a split completion marker fr
     let time = 0;
     h.context.performance = { now: () => time };
     const headers = { 'X-Speedtest-Download': 'framed-v1' };
+    let rejectedSignal;
+    h.context.fetch = async (url, { signal }) => {
+      rejectedSignal = signal;
+      return new Response(new Uint8Array(7));
+    };
+    await assert.rejects(vm.runInContext("windowTransfer('download', 1, .1)", h.context), /does not support confirmed HTTP downloads/);
+    assert.equal(rejectedSignal.aborted, true);
     h.context.fetch = async () => {
       time += 150;
       return new Response(new Uint8Array(7), { headers });

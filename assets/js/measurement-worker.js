@@ -21,8 +21,8 @@ async function request(path, options = {}, origin) {
   try {
     const response = await fetch(origin === undefined ? endpoint(path) : `${origin}${path}`, { cache: 'no-store', ...options, signal: controller.signal });
     if (!response.ok) throw new Error(`Measurement endpoint: HTTP ${response.status}`);
-    return { response, release: () => { clearTimeout(timer); active.delete(abort); } };
-  } catch (error) { clearTimeout(timer); active.delete(abort); throw error; }
+    return { response, abort, release: () => { clearTimeout(timer); active.delete(abort); } };
+  } catch (error) { abort(); clearTimeout(timer); active.delete(abort); throw error; }
 }
 async function json(path, options, origin) {
   const r = await request(path, options, origin);
@@ -110,7 +110,8 @@ async function windowTransfer(direction, count, seconds, body, live = false) {
           bytes += confirmed; usage.download.bytes += confirmed;
         } } finally { reader.releaseLock(); }
         if (received < tail.length || !tail.every((value, i) => value === downloadEnd[i])) throw new Error('Missing HTTP download completion marker');
-      } finally { r.release(); }
+      } catch (error) { r.abort(); throw error; }
+      finally { r.release(); }
     } else while (now() < end) {
       check();
       if (transport === 'xhr') await xhrUpload(path, body, seconds * 1000 + 5000);
@@ -119,7 +120,8 @@ async function windowTransfer(direction, count, seconds, body, live = false) {
         try {
           if (Number(r.response.headers.get('X-Received-Bytes')) !== body.size) throw new Error('Invalid upload acknowledgment');
           await r.response.arrayBuffer(); addresses(r.response);
-        } finally { r.release(); }
+        } catch (error) { r.abort(); throw error; }
+        finally { r.release(); }
       }
       check(); bytes += body.size; usage.upload.bytes += body.size;
     }
@@ -185,7 +187,10 @@ onmessage = async ({ data }) => {
     const connection = await json('/api/connection', { timeout: 2000 });
     route = await SpeedConnection.select(connection, async origin => {
       const r = await request('/api/connection', { timeout: 2000 }, origin);
-      try { return SpeedConnection.addresses(name => r.response.headers.get(name)); } finally { await r.response.arrayBuffer(); r.release(); }
+      try {
+        await r.response.arrayBuffer();
+        return SpeedConnection.addresses(name => r.response.headers.get(name));
+      } finally { r.release(); }
     });
     const body = payload();
     for (let attempt = 0; attempt < 2; attempt++) {
